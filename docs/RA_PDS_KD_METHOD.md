@@ -2,67 +2,62 @@
 
 **Reliability-Aware Participant-Disjoint Segment-Level Knowledge Distillation**
 
-## 1. Participant-disjoint protocol
+## Final protocol
 
 ```text
 DAIC-WOZ
-  -> participant split FIRST
-       TRAIN = 107
-       DEV   = 34 usable participants (440 excluded: corrupted original files)
-       TEST  = 47, CLOSED until the final student is frozen
-  -> segment each split independently
+  -> PARTICIPANT SPLIT FIRST
+       TRAIN 107
+       DEV   34 usable
+       TEST  47 CLOSED
+  -> segment TRAIN/DEV independently
   -> aligned audio/text segment IDs
+  -> segment-level audio teacher + text teacher
+  -> DEV-only teacher evaluation
+  -> TRAIN/DEV aligned teacher targets
+  -> three student experiments
+       1. No KD
+       2. Standard KD
+       3. Reliability-Aware Robust KD
+  -> DEV evaluation for all three:
+       clean
+       audio missing
+       text missing
+       audio noisy
+       text noisy
+  -> checkpoint/threshold selection from CLEAN DEV only
+  -> freeze final student
+  -> open TEST
+  -> same frozen segmentation + student feature pipeline
+  -> CLEAN TEST only
+  -> final segment-level metrics
 ```
 
-No participant can contribute segments to more than one split. Teachers and students are evaluated at **segment level only**. There is no participant-level prediction aggregation.
+No participant-level prediction aggregation is used.
 
-## 2. Teacher stage
+## Teachers and cache
 
-Each aligned segment contains participant audio (<=10 s) and the corresponding transcript chunk (<=254 MiniLM tokens).
+The active teacher script is `scripts/teachers/train_segment_teachers.py`. It creates aligned segment-level Wav2Vec2/MiniLM embeddings under:
 
-- Audio: modality-specific cache -> Wav2Vec2 embedding -> audio segment classifier.
-- Text: modality-specific cache -> MiniLM embedding -> text segment classifier.
-- Teacher checkpoint/model selection uses DEV segments only.
-- TRAIN/DEV teacher probabilities are exported by the same `segment_id`.
-- TEST is never queried by a teacher.
+`experiments/features/rapdskd_segments_<hash>/`
 
-## 3. Student feature stage
+The obsolete participant-level `teacher_v2_*` cache and its frozen/full teacher runners are not part of RA-PDS-KD.
 
-The lightweight ReLiMP-Net student does **not** use teacher embeddings as input.
-
-- Audio input: 64-bin log-Mel summary (mean + std = 128-D) per aligned segment.
-- Text input: train-only vocabulary and fixed-length token IDs.
-- Audio normalization statistics are fitted on clean TRAIN segments only.
-- Text vocabulary is built from TRAIN segment text only.
-- TRAIN/DEV noisy variants are generated deterministically from the same aligned segment.
-- TEST features are not generated at this stage.
-
-Default robustness settings are configurable in code. Current defaults are 10 dB additive audio noise and 30% mixed text corruption (mask/delete/replace).
-
-## 4. Three student experiments
+## Student variants
 
 ### Student 1: No KD
-
-- hard-label BCE only;
-- clean TRAIN input only;
-- no teacher target.
+Hard-label BCE only; clean TRAIN input.
 
 ### Student 2: Standard KD
-
-- hard labels + standard dual-teacher KD;
-- clean TRAIN input only;
-- standard teacher target = 0.5 audio probability + 0.5 text probability;
-- no reliability weighting.
+Hard labels + equal-weight audio/text soft targets; clean TRAIN input.
 
 ### Student 3: Reliability-Aware Robust KD
-
-TRAIN conditions:
-
-1. clean;
-2. audio missing;
-3. text missing;
-4. audio noisy;
-5. text noisy.
+Hard labels + reliability-weighted audio/text soft targets. TRAIN conditions:
+- clean
+- audio missing
+- text missing
+- audio noisy
+- text noisy
 
 Reliability is condition-aware:
 
@@ -70,51 +65,30 @@ Reliability is condition-aware:
 
 `r_text = text_quality × text_teacher_confidence`
 
-Teacher confidence is `1 - normalized binary entropy`. Input quality reflects the actual synthetic condition: clean = 1, missing = 0, noisy = a reduced value determined by corruption severity. The normalized reliabilities weight the audio/text teacher probabilities in the KD target.
+Missing quality = 0, clean quality = 1, noisy quality is reduced according to corruption severity.
 
-Student 3 also uses availability/quality weights for feature fusion, so a missing modality contributes approximately zero and a degraded modality contributes less. Teacher outputs are not needed at inference.
+## DEV policy
 
-## 5. DEV-only robustness evaluation
+All three students are evaluated on DEV under the same five conditions. Missing/noisy results are DEV robustness analyses only.
 
-All three frozen candidate students are evaluated on DEV under the same five conditions:
+Checkpoint and decision-threshold selection use **clean DEV only**. The clean-selected threshold is reused for all DEV robustness conditions.
 
-- clean;
-- audio missing;
-- text missing;
-- audio noisy;
-- text noisy.
+## TEST policy
 
-Checkpoint and decision-threshold selection use **clean DEV only**. Robustness conditions are reported as DEV robustness analyses using that same clean-selected threshold. No condition-specific threshold tuning is allowed.
+TEST is inaccessible during teacher training/selection, KD construction, student training, robustness analysis, checkpoint selection, and threshold selection.
 
-## 6. Final TEST policy
+After the final student is frozen, TEST uses:
+- the same segmentation algorithm
+- the same TRAIN-built vocabulary
+- the same TRAIN-fitted audio normalization
+- the same frozen model
+- the same fixed DEV threshold
+- **clean input only**
 
-After the final student mode/checkpoint/threshold is accepted, everything is frozen. Only then is TEST opened.
+No teacher is queried on TEST. No missing/noisy TEST experiments are run. No threshold search or refitting is allowed on TEST.
 
-TEST uses:
+## Active notebook
 
-- the same segmentation algorithm;
-- the same train-built vocabulary;
-- the same train-fitted audio normalization;
-- the same frozen model checkpoint;
-- the same fixed DEV threshold;
-- **clean input only**.
+Use only:
 
-No missing/noisy TEST experiments are performed. No teacher is queried on TEST. No TEST threshold search, normalization fitting, vocabulary fitting, checkpoint selection, or hyperparameter tuning is allowed.
-
-If the official 47-participant TEST metadata does not contain labels, final metrics cannot be computed until a legitimate TEST-label file is supplied. Such labels must not be used before the final student is frozen.
-
-## 7. Final metrics
-
-Final clean TEST reporting is segment-level only:
-
-- Accuracy
-- Precision
-- Recall
-- F1
-- Macro-F1
-- Depressed-F1
-- Balanced Accuracy
-- AUROC
-- Average Precision
-- Confusion Matrix
-- Classification Report
+`notebooks/RA_PDS_KD_pipeline.ipynb`
