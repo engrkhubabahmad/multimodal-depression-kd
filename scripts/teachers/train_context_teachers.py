@@ -25,6 +25,7 @@ def parse_args(argv=None):
     p.add_argument('--patience',type=int,default=10); p.add_argument('--batch-size',type=int,default=64)
     p.add_argument('--window',type=int,default=5); p.add_argument('--max-gap',type=float,default=30.)
     p.add_argument('--lr',type=float,default=3e-4)
+    p.add_argument('--select-only',action='store_true',help='Re-select an existing completed comparison without retraining candidates')
     a=p.parse_args(argv)
     if min(a.epochs,a.patience,a.batch_size)<1 or a.lr<=0 or a.window<1 or a.window%2!=1 or a.max_gap<0:
         p.error('Invalid training/window parameters')
@@ -152,8 +153,37 @@ def fit_candidate(tf,args,kind,out,xtr,xdv,tr,dv,indices):
     return scores
 
 
+def select_completed_run(base,cache,fingerprints):
+    """Use a conservative Pareto gate after a completed DEV-only comparison."""
+    active=base/'active_teacher_selection.json'
+    if not active.exists(): raise ValueError('No completed contextual comparison selection found')
+    previous=json.loads(active.read_text()); run=base/'context_runs'/previous['run_id']
+    table=pd.read_csv(run/'teacher_comparison.csv')
+    if previous['manifest_sha256']!=fingerprints['manifest'] or previous['cache_root']!=str(cache):
+        raise ValueError('Completed comparison belongs to different cached segments')
+    selection={'run_id':previous['run_id'],
+        'selection_metric':'DEV-only Pareto gate: replacement must not worsen log loss, Brier score, or AUROC; lowest log loss wins',
+        'manifest_sha256':fingerprints['manifest'],'cache_root':str(cache),'test_used':False,'modalities':{}}
+    for modality in ['audio','text']:
+        part=table.loc[table.modality.eq(modality)].copy()
+        if set(part.candidate)!={'original','balanced_mlp','context_gru'}: raise ValueError(f'{modality}: incomplete comparison')
+        baseline=part.loc[part.candidate.eq('original')].iloc[0]
+        qualified=part.loc[(part.log_loss<=baseline.log_loss+1e-12)&(part.brier<=baseline.brier+1e-12)&(part.auroc>=baseline.auroc-1e-12)]
+        chosen=qualified.sort_values(['log_loss','candidate'],kind='stable').iloc[0]
+        table.loc[part.index,'selected']=part.candidate.eq(chosen.candidate).to_numpy()
+        root=base/modality if chosen.candidate=='original' else run/modality/chosen.candidate
+        selection['modalities'][modality]={'candidate':chosen.candidate,'root':str(root),
+            'prediction_hashes':{s:digest(root/f'{s}_segment_predictions.csv') for s in ['train','dev']}}
+        print(modality,'selected:',chosen.candidate,'DEV BCE:',round(float(chosen.log_loss),4))
+    table.to_csv(run/'teacher_comparison.csv',index=False)
+    save_json(run/'selection.json',selection); save_json(active,selection)
+    print('Conservative selection completed. Rebuild KD targets only if a replacement passed the gate. TEST REMAINS CLOSED.')
+    return selection
+
+
 def main(argv=None):
     args=parse_args(argv); base,cache,meta,fingerprints=load_inputs(args)
+    if args.select_only: return select_completed_run(base,cache,fingerprints)
     import tensorflow as tf
     for device in tf.config.list_physical_devices('GPU'):
         try: tf.config.experimental.set_memory_growth(device,True)
@@ -165,7 +195,7 @@ def main(argv=None):
     tr=meta.loc[meta.split.eq('train')].reset_index(drop=True); dv=meta.loc[meta.split.eq('dev')].reset_index(drop=True)
     indices={s:window_indices(m,args.window,args.max_gap)[0] for s,m in [('train',tr),('dev',dv)]}
     for s,idx in indices.items(): print(s,'mean context length:',round(float((idx>=0).sum(1).mean()),2))
-    rows=[]; selection={'run_id':run_id,'selection_metric':'DEV segment BCE, threshold fixed at 0.5',
+    rows=[]; selection={'run_id':run_id,'selection_metric':'DEV segment BCE, threshold fixed at 0.5 (exploratory; use --select-only conservative gate before KD)',
         'manifest_sha256':fingerprints['manifest'],'cache_root':str(cache),'test_used':False,'modalities':{}}
     for modality in ['audio','text']:
         all_x=load_embeddings(cache,modality,meta); xtr=all_x[meta.split.eq('train')]; xdv=all_x[meta.split.eq('dev')]
