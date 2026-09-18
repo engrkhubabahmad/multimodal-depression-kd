@@ -24,11 +24,12 @@ Run it top-to-bottom in one Colab runtime. Reusable implementation stays under `
 
 ### Pipeline
 
-1. Segment-level audio/text teachers
-   - aligned TRAIN/DEV segments
-   - modality-specific caches under `experiments/features/rapdskd_segments_<hash>/`
-   - Wav2Vec2 audio embeddings + MiniLM text embeddings
-   - DEV teacher evaluation only
+1. SBT-Net unimodal audio/text teachers
+   - audio teacher: Wav2Vec2 transfer learning; text teacher: ALBERT-large transfer learning
+   - teacher-training chunks may differ from KD segments
+   - frozen teachers export logits/probabilities for the existing aligned TRAIN/DEV segment IDs
+   - participant-balanced weighted sampling and staged encoder fine-tuning
+   - DEV checkpoint selection only; valid checkpoints are reused automatically
 2. Aligned TRAIN/DEV teacher probabilities and confidence priors
 3. Lightweight ReLiMP-Net TRAIN/DEV segment features
 4. Three student experiments:
@@ -56,7 +57,8 @@ Missing modality quality is 0. Clean quality is 1. Noisy quality is reduced acco
 
 ### Active code
 
-- `scripts/teachers/train_segment_teachers.py`
+- `scripts/teachers/sbt_unimodal/train.py`
+- `scripts/teachers/sbt_unimodal/{data.py,models.py,README.md}`
 - `scripts/kd/build_reliability_targets.py`
 - `scripts/kd/reliability_loss.py`
 - `scripts/students/data_utils.py`
@@ -65,4 +67,4 @@ Missing modality quality is 0. Clean quality is 1. Noisy quality is reduced acco
 - `scripts/students/train_segment_students.py`
 - `scripts/students/evaluate_final_clean_test.py`
 
-The old participant-level frozen/full Facebook/Wav2Vec2 teacher runners were removed to prevent accidental use of the obsolete `teacher_v2_*` cache path. The active segment teacher still uses the pretrained Wav2Vec2 encoder for **segment embeddings**, but it is a different participant-disjoint segment-level pipeline and writes only `rapdskd_segments_*` caches.
+The active teachers are independent SBT-Net-inspired unimodal models. The released SBT-Net repository does not contain the exact published unimodal heads or depression-trained checkpoints, so this project records that provenance explicitly and retrains modality-specific teachers from the published/released backbones before exporting aligned KD targets.
