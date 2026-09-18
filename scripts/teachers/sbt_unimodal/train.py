@@ -13,7 +13,7 @@ from scripts.students.data_utils import load_audio_segment
 from scripts.teachers.sbt_unimodal.data import KD_CFG,build_manifests,save_json
 from scripts.teachers.sbt_unimodal.models import AudioSBTTeacher,TextSBTTeacher
 
-CODE_VERSION='sbt-unimodal-v1.0'
+CODE_VERSION='sbt-unimodal-v1.1'
 
 def parse_args():
     p=argparse.ArgumentParser()
@@ -143,7 +143,9 @@ def train_one(modality,train_df,dev_df,run_dir,args,device,revisions):
             stage=2; freeze_stage(model,2); remain=max(1,args.epochs-args.freeze_epochs)
             opt,sched=make_optimizer(model,args,steps_per_epoch*remain); stale=0
             print(f'{modality}: stage 2 -> top encoder parameters unfrozen')
-        model.train(); opt.zero_grad(set_to_none=True); running=0.; seen=0
+        model.train();
+        if stage==1: model.encoder.eval()
+        opt.zero_grad(set_to_none=True); running=0.; seen=0
         bar=tqdm(tr_loader,desc=f'{modality} epoch {epoch:02d}/{args.epochs} S{stage}')
         for step,b in enumerate(bar,1):
             with torch.autocast(device_type='cuda',dtype=torch.float16,enabled=amp):
