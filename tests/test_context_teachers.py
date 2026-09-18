@@ -68,7 +68,7 @@ class ContextTests(unittest.TestCase):
     def test_keras_training_and_checkpoint_roundtrip(self):
         import tensorflow as tf
         from scripts.teachers.train_context_teachers import build_model
-        rng=np.random.default_rng(103); x=rng.normal(size=(8,6)).astype(np.float32); y=np.array([0,1]*4,np.float32)
+        rng=np.random.default_rng(103); x=rng.normal(size=(8,6)).astype(np.float32); y=np.array([0,1]*4,np.float32).reshape(-1,1)
         for kind in ['balanced_mlp','context_gru']:
             tf.keras.backend.clear_session(); model=build_model(tf,6,kind,5,3e-4)
             inputs=x
