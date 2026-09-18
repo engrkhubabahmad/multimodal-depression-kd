@@ -23,9 +23,9 @@ SEEDS = [103]  # Later use [103, 104, 105, 106, 107]; report all runs.
 MAX_EPOCHS = 200
 PATIENCE = 20
 BATCH_SIZE = 16
-# Minority-class participant-view augmentation, training split only.
-UPSAMPLE_MINORITY = True
-AUG_KEEP_FRACTION = 0.8  # Each synthetic view retains ~80% of that participant's cached chunks.
+# Known-good frozen baseline augmentation.
+AUG_COPIES = 2
+AUG_KEEP_FRACTION = 0.8
 FEATURE_CFG = dict(pipeline_version=2, text_cleanup="nfc_whitespace_v1", max_segments=128, audio_seconds=10.0,
                    min_audio_seconds=0.5, sample_rate=16000, text_tokens=254,
                    audio_model='facebook/wav2vec2-base-960h',
@@ -391,33 +391,27 @@ def class_weights(y):
     return {i: float(len(y)/(2*counts[i])) for i in (0, 1)}
 
 def augment_training_features(x, y, segments, seed):
-    """Balance the training classes with stochastic participant views from the minority class only."""
+    """Known-good feature-view augmentation from the frozen baseline."""
+    assert isinstance(AUG_COPIES, int) and AUG_COPIES >= 0
     assert 0 < AUG_KEEP_FRACTION <= 1
+    if AUG_COPIES == 0: return x.copy(), y.copy()
     assert segments is not None and len(segments) == len(x) == len(y)
-    y = np.asarray(y, dtype=int)
-    counts = np.bincount(y, minlength=2)
-    assert (counts > 0).all(), 'Both classes required'
-    if not UPSAMPLE_MINORITY or counts[0] == counts[1]:
-        return x.copy(), y.copy()
-
-    minority = int(np.argmin(counts)); target = int(counts.max()); need = target - int(counts[minority])
-    minority_idx = np.flatnonzero(y == minority)
     rng = np.random.default_rng(seed)
-    source_idx = rng.choice(minority_idx, size=need, replace=True)
-    extra = []
-
-    for idx in source_idx:
-        original = x[int(idx)]
-        chunks = np.asarray(segments[int(idx)], dtype=np.float32)
-        assert chunks.ndim == 2 and len(chunks) and np.isfinite(chunks).all()
-        assert np.allclose(pool_segments(chunks), original, rtol=1e-4, atol=1e-5), 'Segment/participant order mismatch'
-        keep = min(len(chunks), max(2, int(np.ceil(len(chunks) * AUG_KEEP_FRACTION))))
-        chosen = np.sort(rng.choice(len(chunks), size=keep, replace=False))
-        extra.append(pool_segments(chunks[chosen]))
-
-    xa = np.concatenate([x, np.stack(extra)]).astype(np.float32)
-    ya = np.concatenate([y, np.full(need, minority, dtype=int)])
-    print('Training class counts:', counts.tolist(), '-> augmented:', np.bincount(ya, minlength=2).tolist())
+    variants = [x.copy()]
+    for _ in range(AUG_COPIES):
+        rows = []
+        for original, chunks in zip(x, segments):
+            chunks = np.asarray(chunks, dtype=np.float32)
+            assert chunks.ndim == 2 and len(chunks) and np.isfinite(chunks).all()
+            assert np.allclose(pool_segments(chunks), original, rtol=1e-4, atol=1e-5), 'Segment/participant order mismatch'
+            keep = min(len(chunks), max(2, int(np.ceil(len(chunks)*AUG_KEEP_FRACTION))))
+            chosen = np.sort(rng.choice(len(chunks), size=keep, replace=False))
+            rows.append(pool_segments(chunks[chosen]))
+        variants.append(np.stack(rows))
+    xa = np.concatenate(variants).astype(np.float32)
+    ya = np.tile(y, AUG_COPIES+1)
+    print('Frozen baseline training views:', len(y), '->', len(ya),
+          '| original class counts:', np.bincount(np.asarray(y,dtype=int), minlength=2).tolist())
     return xa, ya
 
 def fit_head(x, y, xv, yv, seed, fixed_epochs=None, fit_segments=None):
@@ -431,7 +425,7 @@ def fit_head(x, y, xv, yv, seed, fixed_epochs=None, fit_segments=None):
         callbacks = [tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=PATIENCE,
                                                        restore_best_weights=True)]
     history = model.fit(xs, ya, validation_data=validation, epochs=fixed_epochs or MAX_EPOCHS,
-                        batch_size=BATCH_SIZE, class_weight=None,
+                        batch_size=BATCH_SIZE, class_weight=class_weights(y),
                         callbacks=callbacks, shuffle=True, verbose=0)
     best_epoch = int(np.argmin(history.history['val_loss'])+1) if fixed_epochs is None else fixed_epochs
     return model, scaler, history.history, best_epoch
@@ -485,9 +479,8 @@ save_json(TEACHER_ROOT / 'data_quality.json', quality_report)
 config = dict(exclusions=exclusion_report, feature_config=cache_config, cache_path=str(CACHE_ROOT), seeds=SEEDS,
               max_epochs=MAX_EPOCHS, patience=PATIENCE,
               batch_size=BATCH_SIZE, learning_rate=3e-4, threshold=0.5,
-              augmentation={'type':'minority_participant_view_upsampling',
-                            'target':'majority_class_count', 'keep_fraction':AUG_KEEP_FRACTION,
-                            'fit_partition_only':True, 'dev_augmented':False, 'test_augmented':False,
+              augmentation={'type':'cached_segment_subset', 'copies':AUG_COPIES,
+                            'keep_fraction':AUG_KEEP_FRACTION, 'fit_partition_only':True,
                             'raw_waveform_augmentation':False, 'token_augmentation':False},
               split_sha256={'train':train_hash, 'dev':dev_hash, 'test_ids':test_hash},
               packages={p: version(p) for p in ['tensorflow','torch','transformers','numpy','pandas','scikit-learn']},
