@@ -13,7 +13,7 @@ from scripts.students.data_utils import load_audio_segment
 from scripts.teachers.sbt_unimodal.data import KD_CFG,build_manifests,save_json
 from scripts.teachers.sbt_unimodal.models import AudioSBTTeacher,TextSBTTeacher
 
-CODE_VERSION='sbt-unimodal-v1.1'
+CODE_VERSION='sbt-unimodal-v1.2'
 
 def parse_args():
     p=argparse.ArgumentParser()
@@ -124,7 +124,7 @@ def train_one(modality,train_df,dev_df,run_dir,args,device,revisions):
     best=out/'best.pt'; model=model.to(device)
     if best.exists() and not args.force_retrain:
         ck=torch.load(best,map_location='cpu',weights_only=False)
-        if ck.get('signature')==signature:
+        if ck.get('signature')==signature and ck.get('complete') is True:
             model.load_state_dict(ck['model']); model.to(device)
             print(f'{modality}: valid checkpoint cache -> {best}')
             return model,prep,ck
@@ -166,7 +166,7 @@ def train_one(modality,train_df,dev_df,run_dir,args,device,revisions):
         if m['macro_f1']>best_score+1e-8:
             best_score=m['macro_f1']; stale=0
             ck=dict(model=model.state_dict(),signature=signature,code_version=CODE_VERSION,model_name=name,
-                    revision=revisions[name],best_epoch=epoch,stage=stage,dev_teacher_sample_metrics=m,config=vars(args))
+                    revision=revisions[name],best_epoch=epoch,stage=stage,dev_teacher_sample_metrics=m,config=vars(args),complete=False)
             torch.save(ck,best); dev_pred.to_csv(out/'best_dev_teacher_sample_predictions.csv',index=False)
         elif stage==2:
             stale+=1
@@ -174,7 +174,8 @@ def train_one(modality,train_df,dev_df,run_dir,args,device,revisions):
                 print(f'{modality}: early stop after stage-2 patience={args.patience}')
                 break
 
-    ck=torch.load(best,map_location='cpu',weights_only=False); model.load_state_dict(ck['model']); model.to(device)
+    ck=torch.load(best,map_location='cpu',weights_only=False); ck['complete']=True; torch.save(ck,best)
+    model.load_state_dict(ck['model']); model.to(device)
     return model,prep,ck
 
 def aligned_predictions(modality,model,prep,kd,run_dir,args,device):
