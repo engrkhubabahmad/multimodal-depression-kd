@@ -33,7 +33,7 @@ device = torch.device('cuda')
 DATA_ROOT = Path('/content/drive/MyDrive/DAIC_WOZ'); RUN_ROOT = DATA_ROOT / 'experiments'
 assert DATA_ROOT.is_dir(), 'Check DATA_ROOT'
 SEED = 103; EPOCHS = 10
-RUN_NAME = 'seed_103_full_10epochs_v1'
+RUN_NAME = 'seed_103_full_10epochs_aug_v2'
 FULL_ROOT = RUN_ROOT / 'teachers' / 'full_finetune_v1' / RUN_NAME
 FULL_ROOT.mkdir(parents=True, exist_ok=True)
 ENCODER_LR = 1e-5; HEAD_LR = 1e-4; WEIGHT_DECAY = 0.01
@@ -189,7 +189,7 @@ for row in tqdm(list(manifest.itertuples()), desc='Prepare raw inputs'):
     assert chunks and windows, f'{pid}: no usable chunks'
     inputs_by_id[pid] = {'audio_path': row.audio_path, 'windows': windows, 'tokens': chunks}
 
-config = dict(protocol='full_finetune_v1', epochs=EPOCHS, seed=SEED, feature_config=FEATURE_CFG,
+config = dict(protocol='full_finetune_aug_v2', epochs=EPOCHS, seed=SEED, feature_config=FEATURE_CFG,
               chunks_per_participant=CHUNKS_PER_PARTICIPANT, accumulation=ACCUM_PARTICIPANTS,
               encoder_lr=ENCODER_LR, head_lr=HEAD_LR, weight_decay=WEIGHT_DECAY,
               model_names=MODEL_NAMES, revisions=revisions, exclusions=exclusion_report,
