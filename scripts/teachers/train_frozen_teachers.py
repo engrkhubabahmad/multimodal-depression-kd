@@ -179,32 +179,47 @@ turns_by_id = {int(r.participant_id): read_turns(r.transcript_path) for r in man
 print('Usable participant transcripts:', len(turns_by_id))
 print('Cache:', CACHE_ROOT)
 
-def source_signature(row):
-    # Full content hashes prevent reuse after source files are replaced.
-    return {'audio_sha256': sha256_file(row.audio_path),
-            'transcript_sha256': sha256_file(row.transcript_path)}
+def source_signatures(row):
+    # Audio windows depend on both the waveform and transcript timestamps.
+    # Text embeddings depend only on the transcript. Existing older cache files
+    # with the combined signature remain valid through subset matching below.
+    audio_sha = sha256_file(row.audio_path)
+    transcript_sha = sha256_file(row.transcript_path)
+    return {
+        'audio': {'audio_sha256': audio_sha, 'transcript_sha256': transcript_sha},
+        'text': {'transcript_sha256': transcript_sha},
+    }
 
 from tqdm.auto import tqdm
-signatures = {int(r.participant_id): source_signature(r)
+signatures = {int(r.participant_id): source_signatures(r)
               for r in tqdm(list(manifest.itertuples()), desc='Fingerprint sources')}
 
 def cache_file(pid, modality): return CACHE_ROOT / f'{int(pid)}_{modality}.npz'
 
+def signature_matches(stored, expected):
+    # Subset comparison preserves compatibility with older cache files that
+    # stored both hashes for both modalities.
+    return isinstance(stored, dict) and all(stored.get(k) == v for k, v in expected.items())
+
 def cached(pid, modality):
+    assert modality in {'audio', 'text'}
     path = cache_file(pid, modality)
     if not path.exists(): return False
     try:
         with np.load(path, allow_pickle=False) as data:
-            valid = json.loads(str(data['signature'].item())) == signatures[int(pid)]
+            stored = json.loads(str(data['signature'].item()))
+            valid = signature_matches(stored, signatures[int(pid)][modality])
             return valid and np.isfinite(data['pooled']).all() and np.isfinite(data['segments']).all()
-    except (ValueError, OSError, KeyError): return False
+    except (ValueError, OSError, KeyError, TypeError, json.JSONDecodeError):
+        return False
 
 def save_features(pid, modality, features):
+    assert modality in {'audio', 'text'}
     path = cache_file(pid, modality); tmp = path.with_suffix('.tmp')
     with open(tmp, 'wb') as f:
         np.savez_compressed(f, segments=np.asarray(features, dtype=np.float32),
                             pooled=pool_segments(features),
-                            signature=json.dumps(signatures[int(pid)], sort_keys=True))
+                            signature=json.dumps(signatures[int(pid)][modality], sort_keys=True))
     tmp.replace(path)
 
 
@@ -216,7 +231,7 @@ def audit_audio_row(row):
     audit_path = CACHE_ROOT / f'{pid}_quality.json'
     if audit_path.exists():
         previous = json.loads(audit_path.read_text())
-        if previous.get('signature') == signatures[pid]: return previous
+        if signature_matches(previous.get('signature'), signatures[pid]['audio']): return previous
     turns = turns_by_id[pid]
     windows = audio_windows(turns, FEATURE_CFG['audio_seconds'], FEATURE_CFG['min_audio_seconds'])
     total = silent = near_full_scale = 0; peak = 0.0
@@ -232,7 +247,7 @@ def audit_audio_row(row):
             near_full_scale += int((values >= 0.999).sum()); peak = max(peak, float(values.max()))
     ends = np.maximum.accumulate(turns.stop_time.to_numpy())
     overlaps = int((turns.start_time.to_numpy()[1:] < ends[:-1]).sum())
-    result = {'participant_id':pid, 'split':str(row.split), 'signature':signatures[pid],
+    result = {'participant_id':pid, 'split':str(row.split), 'signature':signatures[pid]['audio'],
               'sample_rate':int(rate), 'channels':int(channels), 'duration_seconds':float(duration),
               'retained_turns':len(turns), 'sampled_windows':len(windows),
               'near_zero_fraction':float(silent/total), 'near_full_scale_fraction':float(near_full_scale/total),
@@ -484,6 +499,9 @@ config = dict(exclusions=exclusion_report, feature_config=cache_config, cache_pa
                             'raw_waveform_augmentation':False, 'token_augmentation':False},
               split_sha256={'train':train_hash, 'dev':dev_hash, 'test_ids':test_hash},
               packages={p: version(p) for p in ['tensorflow','torch','transformers','numpy','pandas','scikit-learn']},
+              cache_validation={'audio':'audio_sha256 + transcript_sha256',
+                                'text':'transcript_sha256',
+                                'legacy_combined_signatures_accepted':True},
               python=platform.python_version(), test_used_for_training_or_selection=False)
 save_json(TEACHER_ROOT / 'run_config.json', config)
 is_train = manifest.split.eq('train').to_numpy()
