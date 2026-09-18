@@ -21,7 +21,6 @@ assert DATA_ROOT.is_dir(), f'Dataset folder not found: {DATA_ROOT}'
 RUN_ROOT.mkdir(parents=True, exist_ok=True)
 SEEDS = [103]  # Later use [103, 104, 105, 106, 107]; report all runs.
 DO_OOF = False  # Disabled at user request; train/dev only.
-N_FOLDS = 5
 MAX_EPOCHS = 200
 PATIENCE = 20
 BATCH_SIZE = 16
@@ -369,7 +368,6 @@ import tensorflow as tf
 # Small heads run on CPU, leaving the GPU exclusively to encoder extraction.
 tf.config.set_visible_devices([], 'GPU')
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.metrics import (f1_score, balanced_accuracy_score, roc_auc_score,
                              average_precision_score, log_loss, confusion_matrix, brier_score_loss)
 from scipy.special import expit
@@ -477,7 +475,7 @@ manifest.to_csv(TEACHER_ROOT / 'train_dev_manifest.csv', index=False)
 save_json(TEACHER_ROOT / 'exclusions.json', exclusion_report)
 save_json(TEACHER_ROOT / 'data_quality.json', quality_report)
 config = dict(exclusions=exclusion_report, feature_config=cache_config, cache_path=str(CACHE_ROOT), seeds=SEEDS,
-              oof=DO_OOF, folds=N_FOLDS, max_epochs=MAX_EPOCHS, patience=PATIENCE,
+              oof=False, max_epochs=MAX_EPOCHS, patience=PATIENCE,
               batch_size=BATCH_SIZE, learning_rate=3e-4, threshold=0.5,
               augmentation={'type':'cached_segment_subset', 'copies':AUG_COPIES,
                             'keep_fraction':AUG_KEEP_FRACTION, 'fit_partition_only':True,
@@ -516,38 +514,6 @@ for modality in ['audio', 'text']:
         print('Development:', {k:round(v,4) for k,v in scores.items() if isinstance(v,float)}, flush=True)
         del model; gc.collect()
 
-        if DO_OOF:
-            assert np.bincount(y_train).min() >= N_FOLDS, 'Too few minority-class participants for folds'
-            oof = np.full(len(y_train), np.nan); fold_ids = np.full(len(y_train), -1)
-            cv = StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=seed)
-            for fold, (fit_idx, held_idx) in enumerate(cv.split(x_train, y_train)):
-                inner_train, inner_val = train_test_split(fit_idx, test_size=0.2,
-                    stratify=y_train[fit_idx], random_state=seed+fold)
-                probe, _, inner_history, selected_epochs = fit_head(
-                    x_train[inner_train], y_train[inner_train],
-                    x_train[inner_val], y_train[inner_val], seed+fold,
-                    fit_segments=[train_segments[i] for i in inner_train])
-                del probe; gc.collect()
-                teacher, fold_scaler, fold_history, _ = fit_head(
-                    x_train[fit_idx], y_train[fit_idx], None, None,
-                    seed+1000+fold, fixed_epochs=selected_epochs,
-                    fit_segments=[train_segments[i] for i in fit_idx])
-                oof[held_idx] = logits(teacher, fold_scaler, x_train[held_idx]); fold_ids[held_idx] = fold
-                fold_dir = out / 'oof' / f'fold_{fold}'; fold_dir.mkdir(parents=True, exist_ok=True)
-                teacher.save(fold_dir / 'teacher.keras'); save_scaler(fold_dir / 'scaler.npz', fold_scaler)
-                pd.DataFrame(inner_history).to_csv(fold_dir / 'inner_history.csv', index=False)
-                pd.DataFrame(fold_history).to_csv(fold_dir / 'refit_history.csv', index=False)
-                save_json(fold_dir / 'split.json', {'fit_ids':ids_train[fit_idx].tolist(),
-                    'heldout_ids':ids_train[held_idx].tolist(), 'inner_train_ids':ids_train[inner_train].tolist(),
-                    'inner_val_ids':ids_train[inner_val].tolist(), 'selected_epochs':selected_epochs})
-                del teacher; gc.collect()
-                print(f'{modality}: OOF fold {fold+1}/{N_FOLDS} complete', flush=True)
-            assert np.isfinite(oof).all() and (fold_ids >= 0).all()
-            save_predictions(out / 'train_oof_predictions.csv', ids_train, y_train, oof, fold_ids)
-            oof_scores = metrics(y_train, oof)
-            save_json(out / 'train_oof_metrics.json', oof_scores)
-            summary.append(dict(modality=modality, seed=seed, evaluation='train_oof',
-                                **{k:v for k,v in oof_scores.items() if k != 'confusion_matrix'}))
         pd.DataFrame(summary).to_csv(TEACHER_ROOT / 'teacher_summary.csv', index=False)
 
 print('Saved teachers to:', TEACHER_ROOT)
