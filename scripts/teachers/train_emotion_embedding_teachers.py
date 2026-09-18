@@ -9,6 +9,7 @@ from pathlib import Path
 import argparse, hashlib, json, sys
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score,average_precision_score,balanced_accuracy_score,brier_score_loss,f1_score,log_loss,roc_auc_score
 from sklearn.preprocessing import StandardScaler
@@ -78,7 +79,7 @@ def main(argv=None):
     run=base/'emotion_runs'/key; run.mkdir(parents=True,exist_ok=True); save_json(root/'config.json',{'models':revisions,'source_manifest':str(cache/'segment_manifest_train_dev.csv')})
     audio_index,text_index=index_sources(a.data_root); original_tokenizer=AutoTokenizer.from_pretrained(cfg['text_model'],revision=cfg['revisions'][cfg['text_model']])
     records=[]
-    for row in pd.concat([train,dev]).itertuples():
+    for row in tqdm(pd.concat([train,dev]).itertuples(),total=len(train)+len(dev),desc='Validate segments',unit='participant',colour='green'):
         pid=int(row.participant_id); ap=audio_index.get(pid,[]); tp=text_index.get(pid,[])
         if len(ap)!=1 or len(tp)!=1: raise ValueError(f'{pid}: source coverage')
         for s in make_aligned_segments(pid,read_turns(tp[0]),original_tokenizer,cfg):
@@ -101,13 +102,13 @@ def main(argv=None):
     audio=cached('audio')
     if audio is None:
         am=AutoModelForAudioClassification.from_pretrained(AUDIO_MODEL,revision=revisions[AUDIO_MODEL]).to(device).eval(); ap=AutoFeatureExtractor.from_pretrained(AUDIO_MODEL,revision=revisions[AUDIO_MODEL])
-        audio=np.stack([encode_audio(am,ap,r.audio_path,r.start,r.stop,device) for r in rebuilt.itertuples()]); del am,ap
+        audio=np.stack([encode_audio(am,ap,r.audio_path,r.start,r.stop,device) for r in tqdm(rebuilt.itertuples(),total=len(rebuilt),desc='Audio embeddings',unit='segment',colour='green')]); del am,ap
         np.savez_compressed(root/'audio_embeddings.npz',segment_ids=ids,embeddings=audio); print('Saved audio emotion embeddings:',len(audio))
         if torch.cuda.is_available(): torch.cuda.empty_cache()
     text=cached('text')
     if text is None:
         tm=AutoModelForSequenceClassification.from_pretrained(TEXT_MODEL,revision=revisions[TEXT_MODEL]).to(device).eval(); tt=AutoTokenizer.from_pretrained(TEXT_MODEL,revision=revisions[TEXT_MODEL])
-        text=np.stack([encode_text(tm,tt,r.text,device) for r in rebuilt.itertuples()]); del tm,tt
+        text=np.stack([encode_text(tm,tt,r.text,device) for r in tqdm(rebuilt.itertuples(),total=len(rebuilt),desc='Text embeddings',unit='segment',colour='green')]); del tm,tt
         np.savez_compressed(root/'text_embeddings.npz',segment_ids=ids,embeddings=text); print('Saved text emotion embeddings:',len(text))
         if torch.cuda.is_available(): torch.cuda.empty_cache()
     rows=[]; selected={}
