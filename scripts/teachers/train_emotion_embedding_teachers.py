@@ -89,18 +89,27 @@ def main(argv=None):
     bounds=np.allclose(rebuilt[['start','stop']].to_numpy(float),expected[['start','stop']].to_numpy(float),rtol=0,atol=1e-7)
     if not bounds: raise ValueError('Rebuilt segment boundaries differ from original manifest beyond 1e-7 seconds')
     rebuilt=rebuilt.set_index('segment_id').loc[meta.segment_id].reset_index()
-    npz=root/'embeddings.npz'
-    if npz.exists():
-        with np.load(npz,allow_pickle=False) as z: audio=z['audio']; text=z['text']; ids=z['segment_ids'].astype(str)
-        if ids.tolist()!=meta.segment_id.astype(str).tolist(): raise ValueError('Emotion cache IDs mismatch')
-    else:
+    ids=np.asarray(meta.segment_id,dtype='U32')
+    def cached(name):
+        path=root/f'{name}_embeddings.npz'
+        if not path.exists(): return None
+        with np.load(path,allow_pickle=False) as z:
+            x=z['embeddings'].astype(np.float32); cached_ids=z['segment_ids'].astype(str)
+        if cached_ids.tolist()!=ids.astype(str).tolist() or x.ndim!=2 or len(x)!=len(ids) or not np.isfinite(x).all():
+            raise ValueError(f'{name}: invalid cached emotion embeddings')
+        print('Reusing cached',name,'emotion embeddings:',len(x)); return x
+    audio=cached('audio')
+    if audio is None:
         am=AutoModelForAudioClassification.from_pretrained(AUDIO_MODEL,revision=revisions[AUDIO_MODEL]).to(device).eval(); ap=AutoFeatureExtractor.from_pretrained(AUDIO_MODEL,revision=revisions[AUDIO_MODEL])
         audio=np.stack([encode_audio(am,ap,r.audio_path,r.start,r.stop,device) for r in rebuilt.itertuples()]); del am,ap
+        np.savez_compressed(root/'audio_embeddings.npz',segment_ids=ids,embeddings=audio); print('Saved audio emotion embeddings:',len(audio))
         if torch.cuda.is_available(): torch.cuda.empty_cache()
+    text=cached('text')
+    if text is None:
         tm=AutoModelForSequenceClassification.from_pretrained(TEXT_MODEL,revision=revisions[TEXT_MODEL]).to(device).eval(); tt=AutoTokenizer.from_pretrained(TEXT_MODEL,revision=revisions[TEXT_MODEL])
         text=np.stack([encode_text(tm,tt,r.text,device) for r in rebuilt.itertuples()]); del tm,tt
+        np.savez_compressed(root/'text_embeddings.npz',segment_ids=ids,embeddings=text); print('Saved text emotion embeddings:',len(text))
         if torch.cuda.is_available(): torch.cuda.empty_cache()
-        np.savez_compressed(npz,segment_ids=np.asarray(meta.segment_id,dtype='U32'),audio=audio,text=text)
     rows=[]; selected={}
     for modality,x in [('audio',audio),('text',text)]:
         out=run/modality; out.mkdir(parents=True,exist_ok=True); tr=meta.split.eq('train').to_numpy(); dv=~tr
