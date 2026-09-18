@@ -38,6 +38,7 @@ FULL_ROOT = RUN_ROOT / 'teachers' / 'full_finetune_v1' / RUN_NAME
 FULL_ROOT.mkdir(parents=True, exist_ok=True)
 ENCODER_LR = 1e-5; HEAD_LR = 1e-4; WEIGHT_DECAY = 0.01
 ACCUM_PARTICIPANTS = 4; CHUNKS_PER_PARTICIPANT = 4
+UPSAMPLE_MINORITY = True
 FEATURE_CFG = dict(max_segments=128, audio_seconds=4.0, min_audio_seconds=0.5,
                    sample_rate=16000, text_tokens=254)
 MODEL_NAMES = {'audio':'facebook/wav2vec2-base-960h',
@@ -194,7 +195,8 @@ config = dict(protocol='full_finetune_v1', epochs=EPOCHS, seed=SEED, feature_con
               model_names=MODEL_NAMES, revisions=revisions, exclusions=exclusion_report,
               threshold=0.5, selection='minimum development log_loss', all_encoder_parameters_trainable=True,
               test_used=False, audio_specaugment=False, audio_layerdrop=0.0,
-              training_sampling='random chunks per participant per epoch', evaluation_sampling='fixed uniform chunks',
+              training_sampling='class-balanced participant views with random chunks per epoch',
+              upsample_minority=UPSAMPLE_MINORITY, evaluation_sampling='fixed uniform chunks',
               splits={'train':train_hash, 'dev':dev_hash, 'test_ids':test_hash},
               versions={p:version(p) for p in ['torch','transformers','numpy','pandas','scikit-learn','soundfile','scipy']})
 source_hashes = {str(r.participant_id):{'audio':sha256_file(r.audio_path), 'transcript':sha256_file(r.transcript_path)}
@@ -214,23 +216,38 @@ dev_rows = list(manifest.loc[manifest.split.eq('dev')].itertuples())
 def seed_all(seed):
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed); torch.cuda.manual_seed_all(seed)
 
-def select_chunks(items, pid, epoch, training):
+def select_chunks(items, pid, epoch, training, view=0):
     k = min(CHUNKS_PER_PARTICIPANT, len(items))
     if training:
-        rng = np.random.default_rng(SEED + 100000*epoch + int(pid))
+        rng = np.random.default_rng(SEED + 100000*epoch + 1009*int(view) + int(pid))
         return [items[i] for i in sorted(rng.choice(len(items), size=k, replace=False))]
     return uniform_subset(items, k)
 
-def participant_inputs(pid, modality, epoch=0, training=False):
+def balanced_epoch_order(rows, epoch):
+    labels = np.asarray([int(r.label) for r in rows], dtype=int)
+    counts = np.bincount(labels, minlength=2)
+    assert (counts > 0).all(), 'Both classes required'
+    if not UPSAMPLE_MINORITY:
+        return [(int(i), int(v)) for v, i in enumerate(np.random.default_rng(SEED+epoch).permutation(len(rows)))]
+    target = int(counts.max()); rng = np.random.default_rng(SEED + epoch)
+    order = []
+    for cls in (0, 1):
+        idx = np.flatnonzero(labels == cls)
+        sampled = rng.choice(idx, size=target, replace=len(idx) < target)
+        order.extend((int(i), int(v)) for v, i in enumerate(sampled))
+    rng.shuffle(order)
+    return order
+
+def participant_inputs(pid, modality, epoch=0, training=False, view=0):
     entry = inputs_by_id[int(pid)]; result = []
     if modality == 'text':
-        for ids in select_chunks(entry['tokens'], pid, epoch, training):
+        for ids in select_chunks(entry['tokens'], pid, epoch, training, view):
             result.append({'input_ids':torch.tensor([ids], dtype=torch.long, device=device),
                            'attention_mask':torch.ones((1,len(ids)), dtype=torch.long, device=device)})
     else:
         with sf.SoundFile(entry['audio_path']) as wav:
             rate = wav.samplerate
-            for start, end in select_chunks(entry['windows'], pid, epoch, training):
+            for start, end in select_chunks(entry['windows'], pid, epoch, training, view):
                 wav.seek(min(round(start*rate), len(wav)))
                 x = wav.read(max(1, round((end-start)*rate)), dtype='float32', always_2d=True).mean(axis=1)
                 assert len(x) and np.isfinite(x).all(), f'{pid}: invalid audio'
@@ -305,7 +322,7 @@ def train_modality(modality):
     scaler = torch.amp.GradScaler('cuda')
     counts = np.bincount([int(r.label) for r in train_rows], minlength=2)
     assert (counts>0).all()
-    weights = {i:len(train_rows)/(2*counts[i]) for i in [0,1]}
+    print('Original train class counts:', counts.tolist(), '| epoch target:', [int(counts.max())]*2 if UPSAMPLE_MINORITY else counts.tolist())
     history = []; best_loss = float('inf'); best_epoch = None; start_epoch = 1
     latest = out / 'last.pt'; best_path = out / 'best.pt'
     if latest.exists():
@@ -318,17 +335,17 @@ def train_modality(modality):
         print('Resuming from epoch', start_epoch, flush=True)
     for epoch in range(start_epoch, EPOCHS+1):
         seed_all(SEED+epoch); model.train(); optimizer.zero_grad(set_to_none=True)
-        order = np.random.default_rng(SEED+epoch).permutation(len(train_rows))
+        order = balanced_epoch_order(train_rows, epoch)
         loss_total = 0.0; gradient_checked = False; updates = 0
-        for position, index in enumerate(tqdm(order, desc=f'{modality} epoch {epoch}/{EPOCHS}')):
+        for position, (index, view) in enumerate(tqdm(order, desc=f'{modality} epoch {epoch}/{EPOCHS}')):
             row = train_rows[int(index)]
             group_start = (position//ACCUM_PARTICIPANTS)*ACCUM_PARTICIPANTS
             group_size = min(ACCUM_PARTICIPANTS, len(order)-group_start)
-            chunks = participant_inputs(row.participant_id, modality, epoch, True)
+            chunks = participant_inputs(row.participant_id, modality, epoch, True, view)
             with torch.autocast(device_type='cuda', dtype=torch.float16):
                 z = model(chunks)
                 target = torch.tensor(float(row.label), device=device)
-                loss = torch.nn.functional.binary_cross_entropy_with_logits(z.float(), target)*weights[int(row.label)]
+                loss = torch.nn.functional.binary_cross_entropy_with_logits(z.float(), target)
             assert torch.isfinite(loss).item(), f'Nonfinite loss for participant {row.participant_id}'
             scaler.scale(loss/group_size).backward()
             loss_total += float(loss.detach().cpu())
