@@ -13,7 +13,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score,average_precision_score,balanced_accuracy_score,brier_score_loss,f1_score,log_loss,roc_auc_score
 from sklearn.preprocessing import StandardScaler
 import joblib, torch
-from transformers import AutoModelForAudioClassification,AutoModelForSequenceClassification,AutoProcessor,AutoTokenizer
+from transformers import AutoModelForAudioClassification,AutoModelForSequenceClassification,AutoFeatureExtractor,AutoTokenizer
 from huggingface_hub import model_info
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -94,7 +94,7 @@ def main(argv=None):
         with np.load(npz,allow_pickle=False) as z: audio=z['audio']; text=z['text']; ids=z['segment_ids'].astype(str)
         if ids.tolist()!=meta.segment_id.astype(str).tolist(): raise ValueError('Emotion cache IDs mismatch')
     else:
-        am=AutoModelForAudioClassification.from_pretrained(AUDIO_MODEL,revision=revisions[AUDIO_MODEL]).to(device).eval(); ap=AutoProcessor.from_pretrained(AUDIO_MODEL,revision=revisions[AUDIO_MODEL])
+        am=AutoModelForAudioClassification.from_pretrained(AUDIO_MODEL,revision=revisions[AUDIO_MODEL]).to(device).eval(); ap=AutoFeatureExtractor.from_pretrained(AUDIO_MODEL,revision=revisions[AUDIO_MODEL])
         audio=np.stack([encode_audio(am,ap,r.audio_path,r.start,r.stop,device) for r in rebuilt.itertuples()]); del am,ap
         if torch.cuda.is_available(): torch.cuda.empty_cache()
         tm=AutoModelForSequenceClassification.from_pretrained(TEXT_MODEL,revision=revisions[TEXT_MODEL]).to(device).eval(); tt=AutoTokenizer.from_pretrained(TEXT_MODEL,revision=revisions[TEXT_MODEL])
