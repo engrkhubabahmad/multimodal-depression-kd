@@ -136,7 +136,8 @@ def fit_candidate(tf,args,kind,out,xtr,xdv,tr,dv,indices):
     model=build_model(tf,a.shape[1],kind,args.window,args.lr)
     callbacks=[tf.keras.callbacks.EarlyStopping(monitor='val_bce',mode='min',patience=args.patience,restore_best_weights=True),
         tf.keras.callbacks.ModelCheckpoint(str(out/'teacher.keras'),monitor='val_bce',mode='min',save_best_only=True)]
-    hist=model.fit(train_input,tr.label.to_numpy(),sample_weight=participant_weights(tr),validation_data=(dev_input,dv.label.to_numpy()),
+    ytr=tr.label.to_numpy(np.float32).reshape(-1,1); ydv=dv.label.to_numpy(np.float32).reshape(-1,1)
+    hist=model.fit(train_input,ytr,sample_weight=participant_weights(tr),validation_data=(dev_input,ydv),
                    batch_size=args.batch_size,epochs=args.epochs,callbacks=callbacks,verbose=2)
     pd.DataFrame(hist.history).to_csv(out/'history.csv',index=False)
     model=tf.keras.models.load_model(out/'teacher.keras')
