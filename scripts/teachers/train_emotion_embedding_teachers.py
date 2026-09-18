@@ -84,8 +84,10 @@ def main(argv=None):
         for s in make_aligned_segments(pid,read_turns(tp[0]),original_tokenizer,cfg):
             records.append({'segment_id':s['segment_id'],'participant_id':pid,'split':row.split,'label':int(row.label),'start':s['start'],'stop':s['stop'],'text':s['text'],'audio_path':str(ap[0])})
     rebuilt=pd.DataFrame(records).sort_values('segment_id').reset_index(drop=True); expected=meta.sort_values('segment_id').reset_index(drop=True)
-    cols=['segment_id','participant_id','split','label','start','stop']
-    if not rebuilt[cols].equals(expected[cols]): raise ValueError('Rebuilt segments differ from original teacher manifest')
+    keys=['segment_id','participant_id','split','label']
+    if not rebuilt[keys].equals(expected[keys]): raise ValueError('Rebuilt segment IDs, participants, splits, or labels differ from original manifest')
+    bounds=np.allclose(rebuilt[['start','stop']].to_numpy(float),expected[['start','stop']].to_numpy(float),rtol=0,atol=1e-7)
+    if not bounds: raise ValueError('Rebuilt segment boundaries differ from original manifest beyond 1e-7 seconds')
     rebuilt=rebuilt.set_index('segment_id').loc[meta.segment_id].reset_index()
     npz=root/'embeddings.npz'
     if npz.exists():
