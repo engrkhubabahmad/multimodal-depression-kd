@@ -23,7 +23,7 @@ def parse_args():
     p.add_argument('--audio-accum',type=int,default=8); p.add_argument('--text-accum',type=int,default=2)
     p.add_argument('--head-lr',type=float,default=2e-5); p.add_argument('--encoder-lr',type=float,default=1e-5)
     p.add_argument('--weight-decay',type=float,default=1e-2); p.add_argument('--force-retrain',action='store_true')
-    return p.parse_args()
+    return p.parse_known_args()[0]
 
 def seed_all(seed):
     random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
