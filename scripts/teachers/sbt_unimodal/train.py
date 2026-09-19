@@ -11,11 +11,11 @@ from sklearn.metrics import accuracy_score,precision_score,recall_score,f1_score
 
 from scripts.students.data_utils import load_audio_segment
 from scripts.teachers.sbt_unimodal.data import KD_CFG,build_manifests,save_json
-from scripts.teachers.sbt_unimodal.models import AudioSBTTeacher,TextSBTTeacher
+from scripts.teachers.sbt_unimodal.model import AudioSBTTeacher,TextSBTTeacher
 from scripts.teachers.sbt_unimodal.cache import (atomic_torch,atomic_json,digest_file,digest_json,
     frame_digest,stage_sources,build_features)
 
-CODE_VERSION='sbt-unimodal-v2-disk-mountfix'
+CODE_VERSION='sbt-unimodal-v2-released-loader-v1'
 
 def parse_args(argv=None):
     p=argparse.ArgumentParser()
@@ -48,41 +48,7 @@ def participant_sampler(df):
     return WeightedRandomSampler(torch.as_tensor(w,dtype=torch.double),num_samples=len(df),replacement=True,
                                  generator=torch.Generator().manual_seed(103))
 
-class AudioDataset(Dataset):
-    def __init__(self,df,id_col): self.df=df.reset_index(drop=True); self.id_col=id_col
-    def __len__(self): return len(self.df)
-    def __getitem__(self,i):
-        r=self.df.iloc[i]; x=load_audio_segment(r.audio_path,float(r.start),float(r.stop),KD_CFG['sample_rate'])
-        return x,float(r.label),int(r.participant_id),str(r[self.id_col]),str(r.split)
-
-class TextDataset(Dataset):
-    def __init__(self,df,id_col): self.df=df.reset_index(drop=True); self.id_col=id_col
-    def __len__(self): return len(self.df)
-    def __getitem__(self,i):
-        r=self.df.iloc[i]; return str(r.text),float(r.label),int(r.participant_id),str(r[self.id_col]),str(r.split)
-
-class AudioCollator:
-    def __init__(self,extractor): self.extractor=extractor
-    def __call__(self,batch):
-        x,y,pid,sid,split=zip(*batch)
-        # Fixed padding is deliberate: Wav2Vec2 base group norm can otherwise make
-        # a frozen embedding depend on the lengths of its batch companions.
-        limit=int(KD_CFG['teacher_audio_seconds']*KD_CFG['sample_rate'])
-        if any(len(v)>limit for v in x): raise ValueError('Audio exceeds configured bound')
-        z=self.extractor(list(x),sampling_rate=KD_CFG['sample_rate'],padding='max_length',max_length=limit,
-                         return_attention_mask=True,return_tensors='pt')
-        return dict(input_values=z.input_values,attention_mask=z.attention_mask,label=torch.tensor(y,dtype=torch.float32),
-                    participant_id=pid,sample_id=sid,split=split)
-
-class TextCollator:
-    def __init__(self,tokenizer,max_len=128): self.tokenizer=tokenizer; self.max_len=max_len
-    def __call__(self,batch):
-        x,y,pid,sid,split=zip(*batch)
-        z=self.tokenizer(list(x),padding='max_length',truncation=True,max_length=self.max_len,
-                         return_overflowing_tokens=True,stride=0,return_tensors='pt')
-        return dict(input_ids=z.input_ids,attention_mask=z.attention_mask,label=torch.tensor(y,dtype=torch.float32),
-                    window_owner=z.overflow_to_sample_mapping,n_samples=len(y),
-                    participant_id=pid,sample_id=sid,split=split)
+from scripts.teachers.sbt_unimodal.dataset_loader import AudioDataset,TextDataset,AudioCollator,TextCollator
 
 def metrics(y,p,th=.5):
     y=np.asarray(y,int); p=np.asarray(p,float); pred=(p>=th).astype(int)
@@ -156,12 +122,13 @@ def train_one(modality,train_df,dev_df,run_dir,args,device,revisions,source_iden
     if set(train_df.participant_id)&set(dev_df.participant_id): raise ValueError('Participant overlap')
     if modality=='audio':
         name=KD_CFG['teacher_audio_model']; model=AudioSBTTeacher(name,revision=revisions[name])
-        prep=AutoFeatureExtractor.from_pretrained(name,revision=revisions[name])
+        prep=None  # Released demo passes librosa waveform directly; no HF normalization.
         collate=AudioCollator(prep); batch=args.audio_batch; accum=args.audio_accum
         tr_ds=AudioDataset(train_df,'sample_id'); dv_ds=AudioDataset(dev_df,'sample_id')
     else:
         name=KD_CFG['teacher_text_model']; model=TextSBTTeacher(name,revision=revisions[name])
-        prep=AutoTokenizer.from_pretrained(name,revision=revisions[name],use_fast=True)
+        from transformers import AlbertTokenizer
+        prep=AlbertTokenizer.from_pretrained(name,revision=revisions[name])
         collate=TextCollator(prep,KD_CFG['teacher_text_tokens']); batch=args.text_batch; accum=args.text_accum
         tr_ds=TextDataset(train_df,'sample_id'); dv_ds=TextDataset(dev_df,'sample_id')
     import transformers
@@ -170,7 +137,7 @@ def train_one(modality,train_df,dev_df,run_dir,args,device,revisions,source_iden
     identity=dict(code=CODE_VERSION,implementation=implementation,modality=modality,model=name,
         revision=revisions[name],sources=source_identity,config=KD_CFG,torch=torch.__version__,
         transformers=transformers.__version__,precision='fp16-autocast-to-fp32' if device.startswith('cuda') else 'fp32',
-        pooling='masked-mean-audio/full-text-window-mean-cls-v1',padding='fixed')
+        pooling='unpadded-audio-mean/text-cls-v1',padding='text128/audio-transport-only')
     settings={k:v for k,v in vars(args).items() if k not in {'force_retrain','local_cache','data_root','workers'}}
     signature=digest_json(dict(identity=identity,settings=settings,train=frame_digest(train_df),dev=frame_digest(dev_df)))
     attempt=signature if not args.force_retrain else signature+'-forced-'+str(time.time_ns())
@@ -314,7 +281,7 @@ def main(argv=None):
     run_dir=exp_root/'teachers'/'segment_level_v1'/f'seed_{args.seed}'; run_dir.mkdir(parents=True,exist_ok=True)
     protocol=dict(name='RA-PDS-KD',teacher_family='SBT-Net unimodal adaptation',code_version=CODE_VERSION,
                   train_participants=107,dev_participants=34,test_participants_reserved=47,test_opened=False,
-                  teacher_training_units={'audio':'participant speech chunks <=15 s','text':'participant text chunks <=128 ALBERT tokens'},
+                  teacher_training_units={'audio':'first 15 s of concatenated participant speech','text':'participant transcript truncated to 128 ALBERT tokens'},
                   kd_output_units='existing aligned RA-PDS-KD segments <=10 s / <=254 segmentation tokens',
                   cache_root=str(cache_root),config=KD_CFG,revisions=revisions,exports_ready=False,
                   selection='aligned DEV macro-F1 at threshold 0.5; BCE tie-break',
@@ -322,7 +289,9 @@ def main(argv=None):
                   source_identity=source_identity,
                   provenance={'paper_audio':'wav2vec2.0','paper_text':'ALBERT-large',
                               'released_demo_audio':'facebook/wav2vec2-base','released_demo_text':'albert-base-v2',
-                              'implemented_text':'albert-large-v2 per paper',
+                              'implemented_text':'albert-base-v2 per released code',
+                              'raw_file_construction':'participant speech concatenation is our adaptation',
+                              'training_schedule':'cached frozen-head stage then upper-layer fine-tuning; not demo schedule',
                               'exact_published_unimodal_heads_released':False,
                               'author_depression_checkpoint_found':False})
     save_json(run_dir/'protocol.json',protocol)

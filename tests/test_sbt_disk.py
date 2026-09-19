@@ -81,7 +81,7 @@ def test_student_sampling_budget_and_participant_balance(monkeypatch):
         loader=students.make_loader(f,pd.DataFrame(),conditions,2,.5,.5,True)
         assert loader.sampler.num_samples==5 and len(loader)==3
 
-def test_text_windows_cover_every_token():
+def test_released_text_truncates_instead_of_overflow():
     from transformers import PreTrainedTokenizerFast
     from tokenizers import Tokenizer,models,pre_tokenizers,processors
     tok=Tokenizer(models.WordLevel({'[UNK]':0,'[PAD]':1,'[CLS]':2,'[SEP]':3,'a':4},unk_token='[UNK]'))
@@ -89,8 +89,8 @@ def test_text_windows_cover_every_token():
     tok.post_processor=processors.TemplateProcessing(single='[CLS] $A [SEP]',special_tokens=[('[CLS]',2),('[SEP]',3)])
     fast=PreTrainedTokenizerFast(tokenizer_object=tok,unk_token='[UNK]',pad_token='[PAD]',cls_token='[CLS]',sep_token='[SEP]')
     b=train.TextCollator(fast,8)([(' '.join(['a']*19),1.,1,'id','dev')])
-    assert int((b['input_ids']==4).sum())==19
-    assert len(b['input_ids'])==4 and b['window_owner'].tolist()==[0]*4
+    assert int((b['input_ids']==4).sum())==6
+    assert len(b['input_ids'])==1 and b['window_owner'].tolist()==[0]
 
 def test_real_tiny_encoders_pooling_and_freezing():
     from transformers import Wav2Vec2Config,Wav2Vec2Model,AlbertConfig,AlbertModel
@@ -141,3 +141,11 @@ def test_epoch_resume_matches_uninterrupted(tmp_path,monkeypatch,stop_stage,stop
     # A completed checkpoint bypasses training and cache extraction.
     monkeypatch.setattr(train,'build_features',lambda *a,**kw:pytest.fail('cache rebuilt'))
     assert run(tmp_path/'resume')['best_epoch']==resumed['best_epoch']
+
+
+def test_released_audio_truncation_without_normalization():
+    values=np.arange(250000,dtype=np.float32)/100000
+    b=train.AudioCollator(None)([(values,0.,1,'one','train'),(values[:800],1.,2,'two','train')])
+    assert b['input_values'].shape==(2,240000)
+    assert torch.equal(b['input_values'][0],torch.from_numpy(values[:240000]))
+    assert b['attention_mask'].sum(1).tolist()==[240000,800]
