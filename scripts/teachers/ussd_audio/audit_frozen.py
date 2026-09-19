@@ -26,7 +26,7 @@ def evaluate(model, frame, mean, std, device, batch_size=64, save_segments=False
 def main(argv=None):
     p = argparse.ArgumentParser(); p.add_argument("--features", required=True); p.add_argument("--author-root", default="/content/solo_teacher_sources/USSD-depression"); p.add_argument("--output", required=True); p.add_argument("--batch-size", type=int, default=64); p.add_argument("--save-segments", action="store_true")
     a = p.parse_args(argv); features, author, out = Path(a.features), Path(a.author_root), Path(a.output); out.mkdir(parents=True, exist_ok=True)
-    prep_path = features / "preprocessing_manifest.json"
+    prep_path = features / "preprocessing_dev.json"
     if not prep_path.exists(): raise FileNotFoundError(f"Missing preprocessing provenance: {prep_path}")
     prep = json.loads(prep_path.read_text(encoding="utf-8"))
     if prep.get("test_opened") is not False or "dev" not in prep.get("splits", []): raise AssertionError("Preprocessing manifest does not certify a DEV-only/test-closed run")
