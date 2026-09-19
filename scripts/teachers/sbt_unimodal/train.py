@@ -13,14 +13,14 @@ from scripts.students.data_utils import load_audio_segment
 from scripts.teachers.sbt_unimodal.data import KD_CFG,build_manifests,save_json
 from scripts.teachers.sbt_unimodal.models import AudioSBTTeacher,TextSBTTeacher
 
-CODE_VERSION='sbt-unimodal-v1.2'
+CODE_VERSION='sbt-unimodal-v1.3'
 
 def parse_args():
     p=argparse.ArgumentParser()
     p.add_argument('--seed',type=int,default=103); p.add_argument('--epochs',type=int,default=85)
     p.add_argument('--freeze-epochs',type=int,default=25); p.add_argument('--patience',type=int,default=10)
-    p.add_argument('--audio-batch',type=int,default=2); p.add_argument('--text-batch',type=int,default=8)
-    p.add_argument('--audio-accum',type=int,default=8); p.add_argument('--text-accum',type=int,default=2)
+    p.add_argument('--audio-batch',type=int,default=16); p.add_argument('--text-batch',type=int,default=16)
+    p.add_argument('--audio-accum',type=int,default=1); p.add_argument('--text-accum',type=int,default=1)
     p.add_argument('--head-lr',type=float,default=2e-5); p.add_argument('--encoder-lr',type=float,default=1e-5)
     p.add_argument('--weight-decay',type=float,default=1e-2); p.add_argument('--force-retrain',action='store_true')
     return p.parse_known_args()[0]
@@ -120,6 +120,7 @@ def train_one(modality,train_df,dev_df,run_dir,args,device,revisions):
 
     signature=hashlib.sha256(json.dumps(dict(code=CODE_VERSION,modality=modality,model=name,revision=revisions[name],
         epochs=args.epochs,freeze_epochs=args.freeze_epochs,head_lr=args.head_lr,encoder_lr=args.encoder_lr,
+        audio_batch=args.audio_batch,text_batch=args.text_batch,audio_accum=args.audio_accum,text_accum=args.text_accum,
         train_ids=sorted(train_df.participant_id.unique().tolist()),dev_ids=sorted(dev_df.participant_id.unique().tolist())),sort_keys=True).encode()).hexdigest()
     best=out/'best.pt'; model=model.to(device)
     if best.exists() and not args.force_retrain:
