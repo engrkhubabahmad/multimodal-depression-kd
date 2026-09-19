@@ -18,7 +18,7 @@ TRAIN = 107 participants. DEV = 34 participants. Participant 440 is excluded. TE
 
 Raw DAIC-WOZ -> author-style Participant timing extraction (including published interruption/misalignment corrections) -> lossless PCM16 sample-copy bridge to the author-required patient-only WAV -> author-style `SMILExtract -C ComParE_2016.conf` -> drop `name` and `frameTime` -> preserve the author's flatten/reshape behavior -> 130 x 384 non-overlapping segments with zero-padding -> released run #4 `data_saver.pickle` mean/std normalization.
 
-The repository does not release the helper that serialised the concatenated Participant array to `*_P_audio_data.wav`; this implementation therefore copies the selected mono PCM16 samples losslessly and records that bridge explicitly. There is deliberately **no Python openSMILE fallback**. If `SMILExtract`, the ComParE16 config, checkpoint, or saved normalization artifact is missing, the run stops.
+The repository does not release the helper that serialised the concatenated Participant array to `*_P_audio_data.wav`; this implementation therefore copies the selected mono PCM16 samples losslessly and records that bridge explicitly. DEV and TRAIN each receive a split-specific preprocessing provenance file; fine-tuning refuses to start if the TRAIN ComParE16 configuration hash differs from the audited DEV configuration. There is deliberately **no Python openSMILE fallback**. If `SMILExtract`, the ComParE16 config, checkpoint, or saved normalization artifact is missing, the run stops.
 
 The author hard participant prediction is reproduced separately from KD soft targets:
 
@@ -70,4 +70,4 @@ python -m scripts.teachers.ussd_audio.finetune \
 
 ### Fine-tuning caveat
 
-The released frozen checkpoint is fully usable for inference. The original full USSD training objective also referenced an external speaker-embedding artifact that is not released in the repository. Therefore this implementation fine-tunes the released depression network with participant-balanced depression loss only and labels it **TRAIN-only adaptation**, not an exact reproduction of the auxiliary speaker-disentanglement training objective.
+The released frozen checkpoint is fully usable for inference. The original full USSD training objective also referenced an external speaker-embedding artifact that is not released in the repository. Therefore this implementation fine-tunes the released depression network with participant-balanced depression loss over cross-participant segment batches only and labels it **TRAIN-only adaptation**, not an exact reproduction of the auxiliary speaker-disentanglement training objective.
