@@ -21,7 +21,7 @@ Teacher training units are allowed to differ from the student/KD segments:
 
 The teachers are trained only on the 107 TRAIN participants, selected on the 34 usable DEV participants, then frozen. TEST remains closed. The frozen teachers export probabilities/logits for the identical aligned TRAIN/DEV `segment_id`s used by downstream KD.
 
-The implementation follows the paper where reproducible: weighted sampling, staged encoder freezing, top-encoder fine-tuning at a lower learning rate, and DEV macro-F1 checkpoint selection. It preserves participant-balanced sampling so participants with many speech/text chunks do not dominate optimization.
+The implementation follows the paper where reproducible: batch size 16, weighted sampling, staged encoder freezing, top-encoder fine-tuning at a lower learning rate, and DEV macro-F1 checkpoint selection. It preserves participant-balanced sampling so participants with many speech/text chunks do not dominate optimization. Encoder embeddings are not cached in Colab RAM; raw audio/text samples are streamed batch-by-batch during training.
 
 ## Run
 
