@@ -30,7 +30,7 @@ and `evaluator`. It never substitutes random weights.
 ## Colab
 
 ```python
-!pip -q install torch pandas numpy scipy scikit-learn librosa tqdm optuna matplotlib
+!pip -q install torch torchvision pandas numpy scipy scikit-learn scikit-image librosa tqdm optuna matplotlib tensorboard
 !python -m scripts.teachers.solo_published.bootstrap
 !python -m scripts.teachers.solo_published.run_text \
   --daic-root /content/drive/MyDrive/DAIC_WOZ \
