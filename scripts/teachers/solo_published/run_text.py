@@ -1,8 +1,7 @@
 from pathlib import Path
 import argparse,importlib.util,pickle,sys
 import numpy as np,pandas as pd,torch
-from tqdm.auto import tqdm
-from .common import DEV_IDS,labels,metrics,save_json,transcript
+from .common import DEV_IDS,labels,metrics,save_json
 
 def load_author_main(path):
     spec=importlib.util.spec_from_file_location('idiap_author_main',path); mod=importlib.util.module_from_spec(spec); spec.loader.exec_module(mod); return mod
@@ -20,11 +19,7 @@ def main(argv=None):
     split=Path(a.dev_csv) if a.dev_csv else next(root.rglob('dev_split_Depression_AVEC2017.csv')); ymap=labels(split); excluded=set(a.exclude)
     ids=[i for i in DEV_IDS if i not in excluded]
     if set(ids)-set(ymap): raise ValueError(f'Missing labels: {sorted(set(ids)-set(ymap))}')
-    docs=[]; rows=[]
-    for pid in tqdm(ids,desc='Text raw preprocessing',colour='green'):
-        path,df=transcript(root,pid); keep=df[(df.speaker.astype(str).str.casefold()=='participant') & ~df.value.astype(str).str.contains('scrubbed_entry',case=False,na=False)]; doc=' '.join(keep.value.astype(str)).strip();
-        if not doc: raise ValueError(f'{pid}: empty participant transcript')
-        docs.append(doc); rows.append({'participant_id':pid,'label':ymap[pid],'utterances':len(keep),'transcript_path':str(path)})
+    rows=[{'participant_id':pid,'label':ymap[pid]} for pid in ids]
     author=load_author_main(src/'main.py'); author.DEVICE=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     with (src/'model/Participant/vtzer_inductgcn[250].pkl').open('rb') as f: vectorizer=pickle.load(f)
     state=torch.load(src/'model/Participant/model_inductgcn[250].pkl',map_location=author.DEVICE,weights_only=False)
