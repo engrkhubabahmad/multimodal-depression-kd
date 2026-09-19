@@ -1,5 +1,7 @@
 # reliability-aware-depression-kd
 
+> **USSD audio-teacher branch:** This branch contains the locked Ravi et al. USSD ComParE16 + LSTM-only run #4 frozen-checkpoint audit under `scripts/teachers/ussd_audio/`. For this branch, do **not** use the older Wav2Vec2 segment-teacher path below as the audio teacher. First reproduce `md_35_epochs.pth` on DEV-34 (440 excluded); only after that audit is accepted may TRAIN-107 adaptation run. TEST-47 remains closed.
+
 ## Active methodology: RA-PDS-KD
 
 **Reliability-Aware Participant-Disjoint Segment-Level Knowledge Distillation**
