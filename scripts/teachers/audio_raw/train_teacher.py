@@ -125,6 +125,7 @@ class ClipDataset(Dataset):
 
 def participant_metrics(frame: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
     grouped = frame.groupby(["participant_id", "label"], as_index=False).agg(logit=("logit", "mean"), clips=("logit", "size"))
+    grouped["logit_depressed"] = grouped.logit
     grouped["prob_depressed"] = 1.0 / (1.0 + np.exp(-grouped.logit))
     grouped["prediction"] = (grouped.prob_depressed >= .5).astype(int)
     y, p = grouped.label.to_numpy(), grouped.prob_depressed.to_numpy()
@@ -209,7 +210,7 @@ def main(argv=None):
     class_counts = Counter(train_manifest.drop_duplicates("participant_id").label.tolist())
     weights = train_manifest.apply(lambda row: 1.0 / (clip_counts[row.participant_id] * class_counts[row.label]), axis=1).to_numpy()
     sampler = WeightedRandomSampler(torch.as_tensor(weights, dtype=torch.double), num_samples=len(train_set), replacement=True)
-    train_loader = DataLoader(train_set, batch_size=a.batch_size, sampler=sampler, num_workers=0, pin_memory=torch.cuda.is_available())
+    train_loader = DataLoader(train_set, batch_size=a.batch_size, sampler=sampler, num_workers=0, pin_memory=torch.cuda.is_available(), drop_last=True)
     eval_train = DataLoader(train_set, batch_size=a.batch_size, shuffle=False, num_workers=0)
     dev_loader = DataLoader(dev_set, batch_size=a.batch_size, shuffle=False, num_workers=0)
 
