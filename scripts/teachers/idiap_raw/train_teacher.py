@@ -103,10 +103,10 @@ def build_vectorizer(train_documents: list[str], y_train: np.ndarray, features: 
     return vectorizer
 
 
-def train_trial(author, train_docs, y_train, dev_docs, y_dev, vectorizer, lr, epochs, patience, device):
+def train_trial(author, train_docs, y_train, dev_docs, y_dev, vectorizer, lr, epochs, patience, device, pagerank):
     classes = ["negative", "positive"]
     author.DEVICE = device
-    author.USE_PAGERANK = False  # author global is normally set in its CLI entrypoint
+    author.USE_PAGERANK = pagerank  # author global is normally set in its CLI entrypoint
     model = author.InducTGCN(64, classes, 0.5, vectorizer)
     model.build_graph(train_docs, window_size=3, verbose=False)
     model.to(device)
@@ -152,6 +152,7 @@ def main(argv=None):
     p.add_argument("--patience", type=int, default=80)
     p.add_argument("--learning-rates", type=float, nargs="+", default=[1e-4, 3e-4, 1e-3])
     p.add_argument("--seed", type=int, default=17)
+    p.add_argument("--pagerank", action="store_true", help="Use the author\'s PageRank graph variant")
     p.add_argument("--exclude", type=int, nargs="*", default=[440])
     a = p.parse_args(argv)
 
@@ -181,7 +182,7 @@ def main(argv=None):
         model, info = train_trial(
             author, train.document.tolist(), train.label.to_numpy(),
             dev.document.tolist(), dev.label.to_numpy(), vectorizer,
-            lr, a.epochs, a.patience, device
+            lr, a.epochs, a.patience, device, a.pagerank
         )
         info["learning_rate"] = lr
         candidates.append(info)
@@ -205,6 +206,7 @@ def main(argv=None):
         "embedding_dim": 64,
         "features": a.features,
         "seed": a.seed,
+        "pagerank": a.pagerank,
         "learning_rate": best_info["learning_rate"],
         "selection": "DEV macro_f1 at fixed threshold 0.5",
     }
@@ -213,6 +215,7 @@ def main(argv=None):
         pickle.dump(vectorizer, f)
     summary = {
         "protocol": "raw participant-level Idiap-style InducT-GCN",
+        "pagerank": a.pagerank,
         "train": report(train.label.to_numpy(), train_p),
         "dev": report(dev.label.to_numpy(), dev_p),
         "selected": best_info,
