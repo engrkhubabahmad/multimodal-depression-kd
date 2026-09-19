@@ -106,6 +106,7 @@ def build_vectorizer(train_documents: list[str], y_train: np.ndarray, features: 
 def train_trial(author, train_docs, y_train, dev_docs, y_dev, vectorizer, lr, epochs, patience, device):
     classes = ["negative", "positive"]
     author.DEVICE = device
+    author.USE_PAGERANK = False  # author global is normally set in its CLI entrypoint
     model = author.InducTGCN(64, classes, 0.5, vectorizer)
     model.build_graph(train_docs, window_size=3, verbose=False)
     model.to(device)
