@@ -218,6 +218,8 @@ def main():
                               'author_depression_checkpoint_found':False})
     save_json(run_dir/'protocol.json',protocol)
     print('Device:',device)
+    print(f'Batch sizes | audio={args.audio_batch} text={args.text_batch} | grad accumulation audio={args.audio_accum} text={args.text_accum}')
+    print('Embedding cache in Colab RAM: DISABLED; samples are loaded batch-by-batch from source files.')
     print('Teacher samples:',{'audio_train':int((aud.split=='train').sum()),'audio_dev':int((aud.split=='dev').sum()),
           'text_train':int((txt.split=='train').sum()),'text_dev':int((txt.split=='dev').sum())})
     print('Aligned KD segments:',kd.groupby('split').size().to_dict()); print('TEST CLOSED.')
