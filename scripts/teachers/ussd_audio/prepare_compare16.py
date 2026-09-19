@@ -48,7 +48,10 @@ def main(argv=None):
         old = pd.read_csv(current); new = pd.DataFrame(rows); merged = pd.concat([old[~old.set_index(["split","participant_id"]).index.isin(new.set_index(["split","participant_id"]).index)], new], ignore_index=True)
     else: merged = pd.DataFrame(rows)
     merged.sort_values(["split", "participant_id"]).to_csv(current, index=False)
-    summary = {"prepared": int(len(rows)), "splits": sorted(set(r["split"] for r in rows)), "manifest": str(current), "compare16_config": str(config), "smile_extract": smile, "test_opened": False}
+    help_run = subprocess.run([smile, "-h"], capture_output=True, text=True)
+    banner = (help_run.stdout or help_run.stderr).splitlines()
+    summary = {"prepared": int(len(rows)), "splits": sorted(set(r["split"] for r in rows)), "manifest": str(current), "compare16_config": str(config), "compare16_config_sha256": sha256(config), "smile_extract": smile, "smile_banner": banner[0] if banner else "unknown", "test_opened": False}
+    save_json(out / "preprocessing_manifest.json", summary)
     print(json.dumps(summary, indent=2)); return summary
 
 
