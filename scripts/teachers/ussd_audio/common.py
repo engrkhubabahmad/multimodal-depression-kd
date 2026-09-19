@@ -17,7 +17,7 @@ from . import AUTHOR_TRAIN_CROP_FRAMES, CHECKPOINT_NAME, EXCLUDED_DEV_IDS, FREQ_
 
 INTERRUPT = {373: [395, 428], 444: [286, 387]}
 MISALIGNED = {318: 34.319917, 321: 3.8379167, 341: 6.1892, 362: 16.8582}
-SYNC = {"<sync>", "<synch>", "[sync]", "[synch]", "[syncing]", "[synching]"}
+SYNC = {"[sync]", "[syncing]"}
 
 
 def one(root: Path, pattern: str) -> Path:
