@@ -1,0 +1,18 @@
+{
+  "teacher": "Idiap-style InducT-GCN",
+  "unit": "participant",
+  "selected_variant": "original_non_pagerank",
+  "selection_metric": "DEV macro_f1",
+  "threshold": 0.5,
+  "dev_macro_f1": 0.770048309178744,
+  "dev_auroc": 0.7430830039525692,
+  "selected_epoch": 42,
+  "learning_rate": 0.0001,
+  "train_participants": 107,
+  "dev_participants": 34,
+  "excluded_ids": [
+    440
+  ],
+  "test_opened": false,
+  "status": "frozen_before_audio_teacher_work"
+}
