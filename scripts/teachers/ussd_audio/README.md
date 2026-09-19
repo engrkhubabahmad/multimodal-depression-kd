@@ -27,6 +27,14 @@ The author hard participant prediction is reproduced separately from KD soft tar
 
 ## Colab sequence
 
+From the repo root, first run the zero-data syntax check:
+
+```bash
+python -m compileall -q scripts/teachers/ussd_audio
+```
+
+Then run:
+
 ```bash
 # 1) Pin author code + released run #4 assets
 python -m scripts.teachers.ussd_audio.bootstrap \
