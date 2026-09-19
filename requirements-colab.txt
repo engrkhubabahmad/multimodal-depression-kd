@@ -1,9 +1,14 @@
 transformers>=4.44,<5
 torch>=2.6
+torchvision
 tensorflow>=2.16
 soundfile>=0.12
 scipy
 scikit-learn
+scikit-image
 pandas
 tqdm
 librosa>=0.10
+optuna
+matplotlib
+tensorboard
