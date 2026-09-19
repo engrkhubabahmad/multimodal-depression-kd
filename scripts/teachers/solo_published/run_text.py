@@ -1,5 +1,5 @@
 from pathlib import Path
-import argparse,importlib.util,sys
+import argparse,importlib.util,pickle,sys
 import numpy as np,pandas as pd,torch
 from tqdm.auto import tqdm
 from .common import DEV_IDS,labels,metrics,save_json,transcript
@@ -19,10 +19,11 @@ def main(argv=None):
         if not doc: raise ValueError(f'{pid}: empty participant transcript')
         docs.append(doc); rows.append({'participant_id':pid,'label':ymap[pid],'utterances':len(keep),'transcript_path':str(path)})
     author=load_author_main(src/'main.py'); author.DEVICE=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model=author.load_induct_gcn_model(src/'model/Participant/model_inductgcn[250].pkl',src/'model/Participant/vtzer_inductgcn[250].pkl',device=author.DEVICE); model.Conv_0_Test=None
+    with (src/'model/Participant/vtzer_inductgcn[250].pkl').open('rb') as f: vectorizer=pickle.load(f)
+    state=torch.load(src/'model/Participant/model_inductgcn[250].pkl',map_location=author.DEVICE,weights_only=False)
+    model=author.InducTGCN(state['embedding_dim'],state['classes_'],0,vectorizer); model.load_state_dict(state['model_state_dict']); model.A_B=state['A_dev']; model.classes_=state['classes_']; model.to(author.DEVICE); model.Conv_0_Test=None
     probs=model(docs).detach().cpu().numpy(); classes=list(model.classes_); pos=classes.index('positive'); prob=probs[:,pos]; pred=(prob>=.5).astype(int); y=np.array([r['label'] for r in rows])
     for r,q,z in zip(rows,prob,pred): r.update(prob_depressed=float(q),prediction=int(z))
     pd.DataFrame(rows).to_csv(out/'dev_predictions.csv',index=False); result=metrics(y,pred,prob); result.update(model='idiap/participant-induct-gcn-top250',official_dev_n=35,local_dev_n=len(ids),excluded_ids=sorted(excluded),test_opened=False); save_json(out/'metrics.json',result); print(pd.DataFrame([result]).drop(columns=['classification_report','confusion_matrix']).to_string(index=False)); print('CM [actual rows 0,1]:',result['confusion_matrix']); return result
 
 if __name__=='__main__': main()
-
