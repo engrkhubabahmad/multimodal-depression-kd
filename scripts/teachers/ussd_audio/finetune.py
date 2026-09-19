@@ -45,16 +45,22 @@ def train_one_epoch(model, train, mean, std, device, optimizer, epoch, seed):
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("--features", required=True); p.add_argument("--author-root", default="/content/solo_teacher_sources/USSD-depression"); p.add_argument("--output", required=True)
+    p.add_argument("--features", required=True); p.add_argument("--author-root", default="/content/solo_teacher_sources/USSD-depression"); p.add_argument("--output", required=True); p.add_argument("--audit-json", required=True)
     p.add_argument("--epochs", type=int, default=40); p.add_argument("--patience", type=int, default=10); p.add_argument("--learning-rate", type=float, default=1e-4); p.add_argument("--weight-decay", type=float, default=0.0)
     p.add_argument("--seed", type=int, default=17); p.add_argument("--eval-batch-size", type=int, default=64)
     a = p.parse_args(argv); features, author, out = Path(a.features), Path(a.author_root), Path(a.output); out.mkdir(parents=True, exist_ok=True)
 
     random.seed(a.seed); np.random.seed(a.seed); torch.manual_seed(a.seed)
     if torch.cuda.is_available(): torch.cuda.manual_seed_all(a.seed)
+    audit = json.loads(Path(a.audit_json).read_text(encoding="utf-8"))
+    local = audit.get("local_dev34", {})
+    if audit.get("test_opened") is not False or audit.get("participant_440_excluded") is not True or local.get("n") != 34:
+        raise AssertionError("Frozen DEV-34 audit is missing or does not satisfy the leakage guard")
     train = load_feature_manifest(features, "train"); dev = load_feature_manifest(features, "dev")
     if set(train.participant_id) & set(dev.participant_id): raise AssertionError("TRAIN/DEV participant overlap")
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu"); model, source_state, source_ckpt = load_author_model(author, device); mean, std, stats_path = load_author_stats(author)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu"); model, _, source_ckpt = load_author_model(author, device); mean, std, stats_path = load_author_stats(author)
+    if audit.get("checkpoint_sha256") != sha256(source_ckpt): raise AssertionError("Audit checkpoint hash does not match the fine-tuning source checkpoint")
+    if audit.get("normalization_sha256") != sha256(stats_path): raise AssertionError("Audit normalization hash does not match the fine-tuning artifact")
     optimizer = torch.optim.AdamW(model.parameters(), lr=a.learning_rate, weight_decay=a.weight_decay)
 
     best_state, best, history, stalled = None, None, [], 0
