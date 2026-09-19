@@ -56,6 +56,11 @@ def main(argv=None):
     local = audit.get("local_dev34", {})
     if audit.get("test_opened") is not False or audit.get("participant_440_excluded") is not True or local.get("n") != 34:
         raise AssertionError("Frozen DEV-34 audit is missing or does not satisfy the leakage guard")
+    train_prep_path = features / "preprocessing_train.json"
+    if not train_prep_path.exists(): raise FileNotFoundError(f"Missing TRAIN preprocessing provenance: {train_prep_path}")
+    train_prep = json.loads(train_prep_path.read_text(encoding="utf-8"))
+    if train_prep.get("test_opened") is not False or train_prep.get("splits") != ["train"]: raise AssertionError("TRAIN preprocessing provenance is not test-closed")
+    if train_prep.get("compare16_config_sha256") != audit.get("compare16_config_sha256"): raise AssertionError("TRAIN and audited DEV used different ComParE16 configurations")
     train = load_feature_manifest(features, "train"); dev = load_feature_manifest(features, "dev")
     if set(train.participant_id) & set(dev.participant_id): raise AssertionError("TRAIN/DEV participant overlap")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu"); model, _, source_ckpt = load_author_model(author, device); mean, std, stats_path = load_author_stats(author)
@@ -85,12 +90,13 @@ def main(argv=None):
     }, out / "frozen_ussd_audio_teacher.pt")
     summary = {
         "protocol": "TRAIN-107 depression-only adaptation from frozen USSD run #4", "author_commit": AUTHOR_COMMIT,
-        "source_checkpoint": source_ckpt.name, "source_checkpoint_sha256": source_hash, "author_normalization_reused": True, "normalization_sha256": stats_hash,
+        "source_checkpoint": source_ckpt.name, "source_checkpoint_sha256": source_hash, "author_normalization_reused": True, "normalization_sha256": stats_hash, "compare16_config_sha256": audit.get("compare16_config_sha256"), "train_preprocessing_manifest": str(train_prep_path),
         "training_crop": {"random_train_only": True, "frames": AUTHOR_TRAIN_CROP_FRAMES, "segment_frames": 384},
         "fit_participants": 107, "selection_participants": 34, "participant_440_excluded": True, "test_opened": False,
         "selection": "DEV-34 participant macro-F1 only; no threshold search; earliest epoch wins ties", "best": best,
         "train_full_stream": metric_dict(train_pred), "dev_full_stream": metric_dict(dev_pred),
         "kd_export": "train_kd_targets.csv uses mean segment probability and logit(mean probability); author hard-vote fields retained separately",
+        "label_policy": "Local AVEC split labels are used unchanged during adaptation; author-side participant 409 relabel is not silently applied.",
         "caveat": "Fine-tuning uses depression loss only. The unreleased external speaker-embedding dependency is not reconstructed, so this is adaptation of the released USSD depression network, not a reproduction of the full auxiliary speaker-disentanglement training objective.",
     }
     save_json(out / "metrics.json", summary); print(json.dumps(summary, indent=2)); return summary
