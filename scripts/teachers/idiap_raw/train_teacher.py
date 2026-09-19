@@ -151,7 +151,7 @@ def main(argv=None):
     p.add_argument("--patience", type=int, default=80)
     p.add_argument("--learning-rates", type=float, nargs="+", default=[1e-4, 3e-4, 1e-3])
     p.add_argument("--seed", type=int, default=17)
-    p.add_argument("--exclude", type=int, nargs="*", default=[])
+    p.add_argument("--exclude", type=int, nargs="*", default=[440])
     a = p.parse_args(argv)
 
     random.seed(a.seed); np.random.seed(a.seed); torch.manual_seed(a.seed)
