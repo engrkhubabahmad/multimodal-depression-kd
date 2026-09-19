@@ -5,6 +5,7 @@ import json
 import pickle
 import random
 import wave
+import wave
 from pathlib import Path
 
 import numpy as np
@@ -117,10 +118,17 @@ def author_intervals(transcript_path: Path) -> list[list[float]]:
 
 
 def extract_participant_wav(raw_wav: Path, transcript_path: Path, output_wav: Path) -> dict:
-    import librosa
-    import soundfile as sf
+    """Create the ComParE input WAV using the author's exact time-to-sample slicing.
 
-    signal, sr = librosa.load(raw_wav, sr=None)
+    The author repository does not release the helper that serialised its
+    concatenated Participant array to *_P_audio_data.wav. DAIC-WOZ PCM16
+    samples are therefore copied losslessly instead of decoding/re-encoding.
+    """
+    with wave.open(str(raw_wav), "rb") as src:
+        channels, width, sr = src.getnchannels(), src.getsampwidth(), src.getframerate()
+        if channels != 1 or width != 2:
+            raise ValueError(f"{raw_wav}: expected mono PCM16 DAIC-WOZ WAV; got channels={channels}, sample_width={width}")
+        signal = np.frombuffer(src.readframes(src.getnframes()), dtype="<i2")
     chunks = []
     for start, stop in author_intervals(transcript_path):
         a, b = int(start * sr), int(stop * sr)
@@ -129,11 +137,11 @@ def extract_participant_wav(raw_wav: Path, transcript_path: Path, output_wav: Pa
             chunks.append(signal[a:b])
     if not chunks:
         raise ValueError(f"{raw_wav}: no usable Participant audio")
-    patient = np.hstack(chunks).astype(np.float32)
+    patient = np.hstack(chunks).astype("<i2", copy=False)
     output_wav.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(output_wav, patient, sr, subtype="PCM_16")
-    return {"sample_rate": int(sr), "samples": int(patient.size), "seconds": float(patient.size / sr)}
-
+    with wave.open(str(output_wav), "wb") as dst:
+        dst.setnchannels(1); dst.setsampwidth(2); dst.setframerate(sr); dst.writeframes(patient.tobytes())
+    return {"sample_rate": int(sr), "samples": int(patient.size), "seconds": float(patient.size / sr), "wav_bridge": "lossless PCM16 sample copy using author time indices"}
 
 def compare16_matrix(csv_path: Path) -> np.ndarray:
     df = pd.read_csv(csv_path, sep=";")
