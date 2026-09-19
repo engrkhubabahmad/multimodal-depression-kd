@@ -282,6 +282,9 @@ def load_feature_manifest(features: Path, split: str) -> pd.DataFrame:
     manifest = pd.read_csv(features / "participant_manifest.csv")
     if "split" not in manifest.columns:
         raise ValueError("participant_manifest.csv needs split")
+    seen = set(manifest["split"].astype(str).str.lower())
+    if not seen <= {"train", "dev"}:
+        raise AssertionError(f"Teacher feature manifest contains forbidden split(s): {sorted(seen - {'train', 'dev'})}")
     frame = manifest[manifest.split.str.lower() == split.lower()].copy().sort_values("participant_id")
     expected = 107 if split.lower() == "train" else 34 if split.lower() == "dev" else None
     if expected is None:
