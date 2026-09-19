@@ -18,7 +18,7 @@ def main(argv=None):
     from dataset.dataset import DepressionDataset,ToTensor
     from torchvision import transforms
     import utils as author
-    device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'); args=SimpleNamespace(device=device,gpu='0')
+    device=torch.device('cuda' if torch.cuda.is_available() else 'cpu'); first=next(iter(state['audio_net'])); args=SimpleNamespace(device=device,gpu='0,0' if first.startswith('module.') else '0')
     cfg={'PHQ_THRESHOLD':10,'WEIGHTS':{'TYPE':'absolute_path','CUSTOM_ABSOLUTE_PATH':str(ck.resolve()),'INCLUDED':['audio_net','evaluator']},'AUDIO_NET':{'INPUT_DIM':80,'CONV_HIDDEN':256,'LSTM_HIDDEN':256,'OUTPUT_DIM':256,'NUM_LAYERS':4,'ACTIVATION':'relu','NORM':'bn','DROPOUT':.5},'EVALUATOR':{'PREDICT_TYPE':'phq-subscores','INPUT_FEATURE_DIM':256,'CLASSES_RESOLUTION':4,'N_CLASSES':4,'N_SUBSCORES':8,'STD':5}}
     audio,evaluator=author.get_models(cfg,args); audio.eval(); evaluator.eval(); root=Path(a.features)/'validation/clipped_data'; ds=DepressionDataset(str(root),'test',True,False,transforms.Compose([ToTensor('test')])); dl=DataLoader(ds,batch_size=64,num_workers=0)
     rows=[]
