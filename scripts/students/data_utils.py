@@ -81,6 +81,8 @@ def load_teacher_protocol(data_root: Path, seed=103):
     path = data_root / 'experiments' / 'teachers' / 'segment_level_v1' / f'seed_{seed}' / 'protocol.json'
     assert path.exists(), f'Run segment teachers first: {path}'
     protocol = json.loads(path.read_text())
+    if protocol.get('code_version','').startswith('sbt-unimodal-v2') and not protocol.get('exports_ready'):
+        raise RuntimeError('Teacher exports are incomplete; finish both modalities before students')
     cache_root = Path(protocol['cache_root'])
     cfg = protocol['config']
     cache_cfg = json.loads((cache_root / 'config.json').read_text())

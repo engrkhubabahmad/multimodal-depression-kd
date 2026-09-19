@@ -23,6 +23,7 @@ ROOT=Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path: sys.path.insert(0,str(ROOT))
 from scripts.students.relimpnet_segment import ReLiMPNetSegment,parameter_count
 from scripts.kd.reliability_loss import standard_kd_loss,reliability_aware_kd_loss
+from scripts.students.data_utils import load_teacher_protocol,sha256_file
 
 CONDITIONS=['clean','audio_missing','text_missing','audio_noisy','text_noisy']
 MODES=['no_kd','standard_kd','ra_robust_kd']
@@ -33,6 +34,8 @@ def parse_args():
     p.add_argument('--patience',type=int,default=20); p.add_argument('--batch-size',type=int,default=64); p.add_argument('--lr',type=float,default=3e-4)
     p.add_argument('--temperature',type=float,default=2.0); p.add_argument('--lambda-kd',type=float,default=0.5)
     p.add_argument('--final-mode',choices=MODES,default='ra_robust_kd')
+    p.add_argument('--matched-corruption-ablation',action='store_true',
+                   help='Also train Student 3 inputs/fusion with standard KD to isolate KD weighting')
     return p.parse_args()
 
 
@@ -73,8 +76,11 @@ class SegmentDataset(Dataset):
 
 def sampler_weights(features,conditions):
     pid=features['participant_ids'].astype(int); y=features['labels'].astype(int)
-    pcounts=pd.Series(pid).value_counts().to_dict(); ccounts=np.bincount(y,minlength=2)
-    cw={c:len(y)/(2*max(1,ccounts[c])) for c in [0,1]}
+    pcounts=pd.Series(pid).value_counts().to_dict()
+    participants=pd.DataFrame({'pid':pid,'y':y}).drop_duplicates()
+    assert not participants.pid.duplicated().any(),'Inconsistent participant labels'
+    ccounts=participants.y.value_counts().to_dict()
+    cw={c:len(participants)/(2*max(1,ccounts.get(c,0))) for c in [0,1]}
     base=np.array([cw[int(label)]/pcounts[int(p)] for p,label in zip(pid,y)],dtype=np.float64)
     return np.repeat(base,len(conditions))
 
@@ -82,7 +88,9 @@ def sampler_weights(features,conditions):
 def make_loader(features,targets,conditions,batch_size,audio_q,text_q,train=False):
     ds=SegmentDataset(features,targets,conditions,audio_q,text_q)
     if train:
-        w=sampler_weights(features,conditions); sampler=WeightedRandomSampler(torch.as_tensor(w,dtype=torch.double),len(w),replacement=True)
+        w=sampler_weights(features,conditions)
+        # Same examples/optimizer-step budget for all modes; corruption does not multiply epochs by five.
+        sampler=WeightedRandomSampler(torch.as_tensor(w,dtype=torch.double),len(features['labels']),replacement=True)
         return DataLoader(ds,batch_size=batch_size,sampler=sampler,num_workers=0)
     return DataLoader(ds,batch_size=batch_size,shuffle=False,num_workers=0)
 
@@ -130,14 +138,30 @@ def main():
     data_root=Path('/content/drive/MyDrive/DAIC_WOZ'); feat_root=data_root/'processed'/'rapdskd_student'/f'seed_{args.seed}'
     kd_root=data_root/'processed'/'rapdskd_kd'/f'seed_{args.seed}'; out_root=data_root/'experiments'/'students'/'segment_level_v1'/f'seed_{args.seed}'
     out_root.mkdir(parents=True,exist_ok=True)
+    protocol,teacher_cache,_,_=load_teacher_protocol(data_root,args.seed)
+    qc=json.loads((kd_root/'qc.json').read_text())
+    if protocol.get('code_version','').startswith('sbt-unimodal-v2'):
+        teacher_protocol=data_root/'experiments'/'teachers'/'segment_level_v1'/f'seed_{args.seed}'/'protocol.json'
+        assert qc.get('teacher_protocol_sha256')==sha256_file(teacher_protocol),'Rebuild KD targets for these teachers'
+        for split in ('train','dev'):
+            assert qc['target_sha256'][split]==sha256_file(kd_root/f'{split}_teacher_targets.csv'),'KD targets changed'
     summary=json.loads((feat_root/'feature_summary.json').read_text()); vocab=json.loads((feat_root/'vocab.json').read_text())
+    if protocol.get('code_version','').startswith('sbt-unimodal-v2'):
+        assert summary.get('teacher_manifest_sha256')==sha256_file(teacher_cache/'segment_manifest_train_dev.csv'),'Rebuild student features'
+        assert summary.get('teacher_cache_config_sha256')==sha256_file(teacher_cache/'config.json'),'Student feature provenance changed'
     train=load_features(feat_root/'train_features.npz'); dev=load_features(feat_root/'dev_features.npz')
     tr_targets=load_targets(kd_root/'train_teacher_targets.csv',train['segment_ids']); dv_targets=load_targets(kd_root/'dev_teacher_targets.csv',dev['segment_ids'])
+    for features,targets in ((train,tr_targets),(dev,dv_targets)):
+        assert np.array_equal(features['labels'].astype(int),targets.label.to_numpy(int)),'Feature/target label mismatch'
+        assert np.array_equal(features['participant_ids'].astype(int),targets.participant_id.to_numpy(int)),'Feature/target participant mismatch'
+    assert not set(train['participant_ids'])&set(dev['participant_ids']),'Feature participant overlap'
     audio_q=summary['audio_noisy_quality']; text_q=summary['text_noisy_quality']
     comparison=[]
-    for mode in MODES:
+    modes=MODES+(['ra_input_standard_kd'] if args.matched_corruption_ablation else [])
+    for mode in modes:
         print('\n'+'='*90+f'\nTRAINING {mode}\n'+'='*90); seed_all(args.seed)
-        robust=mode=='ra_robust_kd'; model=ReLiMPNetSegment(len(vocab),use_reliability_fusion=robust).to(device)
+        robust=mode in {'ra_robust_kd','ra_input_standard_kd'}
+        model=ReLiMPNetSegment(len(vocab),use_reliability_fusion=robust).to(device)
         print('Device:',device,'| Params:',parameter_count(model))
         opt=torch.optim.AdamW(model.parameters(),lr=args.lr,weight_decay=1e-4)
         train_conditions=CONDITIONS if robust else ['clean']
@@ -151,7 +175,7 @@ def main():
                 a=b['audio'].to(device); t=b['text'].to(device); y=b['label'].to(device); aq=b['audio_quality'].to(device); tq=b['text_quality'].to(device)
                 z=model(a,t,aq,tq)
                 if mode=='no_kd': loss=torch.nn.functional.binary_cross_entropy_with_logits(z.float(),y.float())
-                elif mode=='standard_kd':
+                elif mode in {'standard_kd','ra_input_standard_kd'}:
                     loss,_=standard_kd_loss(z,y,b['audio_probability'].to(device),b['text_probability'].to(device),args.temperature,args.lambda_kd)
                 else:
                     loss,_=reliability_aware_kd_loss(z,y,b['audio_probability'].to(device),b['text_probability'].to(device),aq,tq,

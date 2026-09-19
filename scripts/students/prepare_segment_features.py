@@ -17,7 +17,7 @@ ROOT=Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path: sys.path.insert(0,str(ROOT))
 from scripts.students.data_utils import (read_split,index_sources,read_turns,load_teacher_protocol,
     make_aligned_segments,build_vocab,encode_text,corrupt_text_ids,load_audio_segment,add_gaussian_noise_snr,
-    logmel_summary,fit_standardizer,apply_standardizer,quality_from_snr,quality_from_text_noise)
+    logmel_summary,fit_standardizer,apply_standardizer,quality_from_snr,quality_from_text_noise,sha256_file)
 
 DATA_ROOT=Path('/content/drive/MyDrive/DAIC_WOZ'); SEED=103
 AUDIO_SNR_DB=10.0; TEXT_NOISE_RATE=0.30; STUDENT_TEXT_TOKENS=64; MAX_VOCAB=10000
@@ -47,6 +47,10 @@ segments=pd.DataFrame(records); assert not segments.segment_id.duplicated().any(
 
 teacher_manifest=pd.read_csv(cache_root/'segment_manifest_train_dev.csv')
 assert set(teacher_manifest.segment_id)==set(segments.segment_id),'Student/teacher segment reconstruction mismatch'
+expected=teacher_manifest.set_index('segment_id').loc[segments.segment_id].reset_index()
+for c in ['participant_id','split','label','text']:
+    assert expected[c].tolist()==segments[c].tolist(),f'Student/teacher {c} mismatch'
+assert np.allclose(expected[['start','stop']],segments[['start','stop']],rtol=0,atol=1e-7),'Segment timing mismatch'
 assert set(segments.loc[segments.split.eq('train'),'participant_id'])==set(train.participant_id)
 assert set(segments.loc[segments.split.eq('dev'),'participant_id'])==set(dev.participant_id)
 
@@ -84,6 +88,8 @@ def save_split(name,meta,a,an,t,tn):
 
 save_split('train',tr_meta,tr_a,tr_an,tr_t,tr_tn); save_split('dev',dv_meta,dv_a,dv_an,dv_t,dv_tn)
 summary={'protocol':'RA-PDS-KD','student':'ReLiMP-Net segment-level','train_participants':107,'dev_participants':34,
+         'teacher_manifest_sha256':sha256_file(cache_root/'segment_manifest_train_dev.csv'),
+         'teacher_cache_config_sha256':sha256_file(cache_root/'config.json'),
          'train_segments':int(len(tr_meta)),'dev_segments':int(len(dv_meta)),'test_prepared':False,
          'audio_input':'64-bin log-Mel mean+std = 128-D per aligned segment','text_input':f'train-only vocabulary, {STUDENT_TEXT_TOKENS} IDs/segment',
          'audio_noise':f'Gaussian additive noise at {AUDIO_SNR_DB:g} dB SNR','text_noise':f'mask/delete/replace at rate {TEXT_NOISE_RATE:g}',

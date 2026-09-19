@@ -10,10 +10,16 @@ from pathlib import Path
 import json, math
 import numpy as np
 import pandas as pd
+from scripts.teachers.sbt_unimodal.cache import digest_file
 
 DATA_ROOT=Path('/content/drive/MyDrive/DAIC_WOZ'); SEED=103
 TEACHER_ROOT=DATA_ROOT/'experiments'/'teachers'/'segment_level_v1'/f'seed_{SEED}'
 OUT=DATA_ROOT/'processed'/'rapdskd_kd'/f'seed_{SEED}'; OUT.mkdir(parents=True,exist_ok=True)
+protocol=json.loads((TEACHER_ROOT/'protocol.json').read_text())
+if protocol.get('code_version','').startswith('sbt-unimodal-v2'):
+    if not protocol.get('exports_ready'): raise RuntimeError('Both teacher exports must finish before KD')
+    for name,sha in protocol['prediction_sha256'].items():
+        if digest_file(TEACHER_ROOT/name)!=sha: raise RuntimeError('Stale or modified teacher prediction: '+name)
 
 
 def entropy_confidence(p):
@@ -30,6 +36,7 @@ def build(split):
         assert set(keys+['probability'])<=set(d.columns)
         assert d['split'].eq(split).all() and not d.segment_id.duplicated().any()
         assert not d['split'].eq('test').any()
+        assert np.isfinite(d.probability).all() and d.probability.between(0,1).all()
     d=a[keys+['probability']].rename(columns={'probability':'audio_probability'}).merge(
         t[keys+['probability']].rename(columns={'probability':'text_probability'}),on=keys,how='inner',validate='one_to_one')
     assert len(d)==len(a)==len(t),'Audio/text aligned segment mismatch'
@@ -44,7 +51,10 @@ def build(split):
     return d,path
 
 train,train_path=build('train'); dev,dev_path=build('dev')
+assert not set(train.participant_id)&set(dev.participant_id),'TRAIN/DEV participant overlap'
 qc={'protocol':'RA-PDS-KD','level':'segment','train_segments':int(len(train)),'dev_segments':int(len(dev)),
+    'teacher_protocol_sha256':digest_file(TEACHER_ROOT/'protocol.json'),
+    'target_sha256':{'train':digest_file(train_path),'dev':digest_file(dev_path)},
     'standard_kd':'equal 0.5/0.5 audio-text teacher target on clean TRAIN input',
     'reliability_prior':'teacher entropy confidence only; Student 3 multiplies it by actual modality availability/quality per input condition',
     'robust_conditions_built_here':False,'robust_conditions_stage':'Student 3 training + DEV robustness evaluation only',

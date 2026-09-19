@@ -7,6 +7,7 @@ from transformers import AutoTokenizer
 from huggingface_hub import model_info
 
 from scripts.students.data_utils import read_split,index_sources,read_turns,make_aligned_segments
+from scripts.teachers.sbt_unimodal.cache import stage_sources,frame_digest
 
 SEED=103
 KD_CFG=dict(
@@ -29,14 +30,19 @@ def save_json(path,obj):
     path.write_text(json.dumps(obj,indent=2,allow_nan=False))
 
 def hf_revision(name):
-    try: return model_info(name).sha
-    except Exception: return None
+    revision=model_info(name).sha
+    if not revision: raise RuntimeError('Cannot pin model revision: '+name)
+    return revision
 
-def build_manifests(data_root:Path,exp_root:Path):
+def build_manifests(data_root:Path,exp_root:Path,local_root='/content/rapdskd_teacher_cache'):
     train=read_split(data_root,'train_split_Depression_AVEC2017.csv',True).assign(split='train')
     dev=read_split(data_root,'dev_split_Depression_AVEC2017.csv',True)
     dev=dev.loc[dev.participant_id.ne(440)].reset_index(drop=True).assign(split='dev')
-    test=read_split(data_root,'test_split_Depression_AVEC2017.csv',False)
+    # Read IDs only: even if this file contains labels, do not load them.
+    test=pd.read_csv(data_root/'metadata'/'test_split_Depression_AVEC2017.csv',
+                     usecols=lambda c:c.strip().lower()=='participant_id')
+    test.columns=['participant_id']; test['participant_id']=pd.to_numeric(test.participant_id,errors='raise')
+    assert not test.participant_id.duplicated().any() and test.participant_id.notna().all()
     assert (len(train),len(dev),len(test))==(107,34,47)
     assert not set(train.participant_id)&set(dev.participant_id)
     assert not set(train.participant_id)&set(test.participant_id)
@@ -51,6 +57,7 @@ def build_manifests(data_root:Path,exp_root:Path):
         rows.append(dict(participant_id=int(r.participant_id),split=r.split,label=int(r.label),
                          audio_path=str(ap[0]),transcript_path=str(tp[0])))
     manifest=pd.DataFrame(rows)
+    source_map,source_identity=stage_sources(manifest,local_root)
 
     revisions={KD_CFG['text_model']:hf_revision(KD_CFG['text_model']),
                KD_CFG['teacher_audio_model']:hf_revision(KD_CFG['teacher_audio_model']),
@@ -98,11 +105,12 @@ def build_manifests(data_root:Path,exp_root:Path):
     assert not aud.sample_id.duplicated().any()
     assert not txt.sample_id.duplicated().any()
 
-    cache_payload=dict(KD_CFG,revisions=revisions)
+    cache_payload=dict(KD_CFG,revisions=revisions,sources=source_identity,
+                       manifest_hash=frame_digest(kd),audio_hash=frame_digest(aud),text_hash=frame_digest(txt))
     key=hashlib.sha256(json.dumps(cache_payload,sort_keys=True).encode()).hexdigest()[:16]
     cache_root=exp_root/'features'/f'rapdskd_segments_{key}'; cache_root.mkdir(parents=True,exist_ok=True)
     save_json(cache_root/'config.json',cache_payload)
     kd.to_csv(cache_root/'segment_manifest_train_dev.csv',index=False)
     aud.to_csv(cache_root/'sbt_audio_teacher_samples.csv',index=False)
     txt.to_csv(cache_root/'sbt_text_teacher_samples.csv',index=False)
-    return manifest,kd,aud,txt,cache_root,revisions
+    return manifest,kd,aud,txt,cache_root,revisions,source_map,source_identity

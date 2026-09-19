@@ -37,9 +37,11 @@ No participant-level prediction aggregation is used.
 
 ## Teachers and cache
 
-The active teacher script is `scripts/teachers/train_segment_teachers.py`. It creates aligned segment-level Wav2Vec2/MiniLM embeddings under:
+The active teacher script is `scripts/teachers/sbt_unimodal/train.py`: Wav2Vec2-base audio and ALBERT-large text teachers, independently adapted from SBT-Net. Published author scores are not reproduced claims. See [the audited teacher protocol](../scripts/teachers/sbt_unimodal/README.md).
 
-`experiments/features/rapdskd_segments_<hash>/`
+TRAIN chunks may differ from aligned KD segments. Teacher checkpoint selection uses aligned DEV macro-F1 at threshold 0.5 with BCE tie-breaking. All text overflow windows are represented. S1 uses checksummed frozen-feature disk shards; S2 bypasses them and fine-tunes from raw local-disk input. Only batches enter RAM. Batch size is 16 for each teacher. Source/model/manifest identities control cache reuse; completed epochs are resumable.
+
+Manifest/config artifacts remain under `experiments/features/rapdskd_segments_<hash>/`. Frozen feature shards persist under `experiments/teachers/sbt_frozen_features/`. Both teacher exports must finish before downstream KD starts.
 
 The obsolete participant-level `teacher_v2_*` cache and its frozen/full teacher runners are not part of RA-PDS-KD.
 
@@ -67,6 +69,14 @@ Reliability is condition-aware:
 
 Missing quality = 0, clean quality = 1, noisy quality is reduced according to corruption severity.
 
+## Controlled comparison and limits
+
+All primary students now sample the same number of training examples per epoch. Student 3 no longer receives five times the update budget from its five conditions. Optional `--matched-corruption-ablation` adds a control with Student 3 input conditions and fusion but standard KD loss, isolating the effect of KD weighting. The three primary modes alone evaluate a combined intervention.
+
+Entropy confidence is a heuristic rather than calibrated correctness. Reliability uses clean teacher probabilities weighted by the student's observed corruption/availability, not teacher predictions recomputed on noisy inputs. No OOF teacher fitting is introduced. Labels are participant labels inherited by segments; within-turn audio/text subdivisions are proportional rather than word-level forced alignment. Report participant-cluster uncertainty and acknowledge repeated DEV selection bias.
+
+Final mode is explicitly chosen with `--final-mode` (default `ra_robust_kd`), not automatically the highest-scoring student. Keep this choice explicit before final TEST.
+
 ## DEV policy
 
 All three students are evaluated on DEV under the same five conditions. Missing/noisy results are DEV robustness analyses only.
@@ -92,3 +102,4 @@ No teacher is queried on TEST. No missing/noisy TEST experiments are run. No thr
 Use only:
 
 `notebooks/RA_PDS_KD_pipeline.ipynb`
+
