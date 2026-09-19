@@ -15,7 +15,7 @@ from scripts.teachers.sbt_unimodal.model import AudioSBTTeacher,TextSBTTeacher
 from scripts.teachers.sbt_unimodal.cache import (atomic_torch,atomic_json,digest_file,digest_json,
     frame_digest,stage_sources,build_features)
 
-CODE_VERSION='sbt-unimodal-v2-released-loader-v1'
+CODE_VERSION='sbt-unimodal-v2-released-loader-v2'
 
 def parse_args(argv=None):
     p=argparse.ArgumentParser()
@@ -26,6 +26,7 @@ def parse_args(argv=None):
     p.add_argument('--head-lr',type=float,default=2e-5); p.add_argument('--encoder-lr',type=float,default=1e-5)
     p.add_argument('--weight-decay',type=float,default=1e-2); p.add_argument('--force-retrain',action='store_true')
     p.add_argument('--s1-patience',type=int,default=5)
+    p.add_argument('--train-units',choices=['participant','aligned'],default='participant')
     p.add_argument('--workers',type=int,default=2)
     p.add_argument('--local-cache',default='/content/rapdskd_teacher_cache')
     p.add_argument('--data-root',default='/content/drive/MyDrive/DAIC_WOZ')
@@ -64,6 +65,9 @@ def metrics(y,p,th=.5):
     return out
 
 def freeze_stage(model,stage):
+    # Reentrant checkpointing can detach upper layers when the lower encoder is frozen.
+    if hasattr(model.encoder,'gradient_checkpointing_disable'):
+        model.encoder.gradient_checkpointing_disable()
     model.freeze_encoder()
     if stage==2: model.unfreeze_top()
 
@@ -189,27 +193,37 @@ def train_one(modality,train_df,dev_df,run_dir,args,device,revisions,source_iden
                 layers=(model.encoder.encoder.layers[-2:] if modality=='audio'
                         else model.encoder.encoder.albert_layer_groups[-1:])
                 for layer in layers: layer.train()
-            opt.zero_grad(set_to_none=True); running=0.; seen=0; started=time.perf_counter()
-            bar=tqdm(tr_loader,desc=f'{modality} S{stage} epoch {stage_epoch:02d}/{limit}',colour='green')
+            opt.zero_grad(set_to_none=True); running=0.; seen=0; correct=0; started=time.perf_counter()
+            print(f'\n{modality.upper()} | S{stage} | Epoch {stage_epoch}/{limit}',flush=True)
+            bar=tqdm(tr_loader,desc='Training',leave=False,colour='green')
             for step,b in enumerate(bar,1):
                 group_start=((step-1)//accum)*accum
                 group_size=min(accum,len(tr_loader)-group_start)
                 with torch.autocast(device_type='cuda',dtype=torch.float16,enabled=amp):
                     z=forward_batch(model,b,modality,device); y=b['label'].to(device)
                     raw_loss=criterion(z.float(),y.float()); loss=raw_loss/group_size
-                scaler.scale(loss).backward(); running+=float(raw_loss.detach().cpu())*len(y); seen+=len(y)
+                scaler.scale(loss).backward()
+                if stage==2 and step==1:
+                    missing=[n for n,p in model.encoder.named_parameters() if p.requires_grad and p.grad is None]
+                    if missing: raise RuntimeError('Unfrozen encoder parameters have no gradients: '+', '.join(missing[:5]))
+                correct+=int(((z.detach()>=0)==(y>=.5)).sum().item())
+                running+=float(raw_loss.detach().cpu())*len(y); seen+=len(y)
                 if step%accum==0 or step==len(tr_loader):
                     scaler.unscale_(opt); torch.nn.utils.clip_grad_norm_(model.parameters(),1.0)
                     old_scale=scaler.get_scale(); scaler.step(opt); scaler.update(); opt.zero_grad(set_to_none=True)
                     if scaler.get_scale()>=old_scale: sched.step()
-                bar.set_postfix(loss=f'{running/max(1,seen):.4f}')
+                bar.set_postfix(loss=f'{running/max(1,seen):.4f}',accuracy=f'{correct/max(1,seen):.4f}')
             train_seconds=time.perf_counter()-started; started=time.perf_counter()
             dev_pred=predict(model,dv_loader,modality,device,f'{modality} aligned DEV')
             m=metrics(dev_pred.label,dev_pred.probability); key=score_key(m)
             history.append(dict(epoch=epoch,stage=stage,stage_epoch=stage_epoch,train_loss=running/max(1,seen),
-                train_seconds=train_seconds,dev_seconds=time.perf_counter()-started,**m))
+                train_accuracy=correct/max(1,seen),train_seconds=train_seconds,dev_seconds=time.perf_counter()-started,**m))
             pd.DataFrame(history).to_csv(out/'history.csv',index=False)
-            print(f"{modality} S{stage}/{stage_epoch} aligned DEV macro-F1={m['macro_f1']:.4f} BCE={m['log_loss']:.4f}")
+            elapsed=train_seconds+time.perf_counter()-started
+            print(f"{len(tr_loader)}/{len(tr_loader)} - {elapsed:.0f}s - "
+                  f"loss: {running/max(1,seen):.4f} - accuracy: {correct/max(1,seen):.4f} - "
+                  f"val_loss: {m['log_loss']:.4f} - val_accuracy: {m['accuracy']:.4f} - "
+                  f"val_macro_f1: {m['macro_f1']:.4f} - val_auroc: {m['auroc']:.4f}",flush=True)
             if key>stage_best: stage_best=key; stale=0
             else: stale+=1
             previous_best=None
@@ -294,13 +308,17 @@ def main(argv=None):
                               'training_schedule':'cached frozen-head stage then upper-layer fine-tuning; not demo schedule',
                               'exact_published_unimodal_heads_released':False,
                               'author_depression_checkpoint_found':False})
+    protocol['train_units']=args.train_units
+    if args.train_units=='aligned':
+        protocol['teacher_training_units']={'audio':'aligned TRAIN segments','text':'aligned TRAIN segments truncated to 128 ALBERT tokens'}
     save_json(run_dir/'protocol.json',protocol)
     print('Device:',device)
     print(f'Batch sizes | audio={args.audio_batch} text={args.text_batch} | grad accumulation audio={args.audio_accum} text={args.text_accum}')
     print('Embedding matrix in RAM: DISABLED. S1: disk features; S2: raw local-disk batches.')
     print('S1 resumes feature shards; training resumes at completed epoch boundaries.')
     if device=='cuda': print('GPU:',torch.cuda.get_device_name(0))
-    print('Teacher samples:',{'audio_train':int((aud.split=='train').sum()),'audio_dev':int((aud.split=='dev').sum()),
+    print('Training units:',args.train_units)
+    print('Prepared participant samples:',{'audio_train':int((aud.split=='train').sum()),'audio_dev':int((aud.split=='dev').sum()),
           'text_train':int((txt.split=='train').sum()),'text_dev':int((txt.split=='dev').sum())})
     print('Aligned KD segments:',kd.groupby('split').size().to_dict()); print('TEST CLOSED.')
 
@@ -311,7 +329,9 @@ def main(argv=None):
     summary=[]; checkpoints={}
     for modality,df in [('audio',aud),('text',txt)]:
         seed_all(args.seed+(0 if modality=='audio' else 100000))
-        tr=df.loc[df.split.eq('train')].reset_index(drop=True)
+        training=kd.rename(columns={'segment_id':'sample_id'}) if args.train_units=='aligned' else df
+        tr=training.loc[training.split.eq('train')].reset_index(drop=True)
+        print(f'{modality}: actual TRAIN samples={len(tr)}; participants={tr.participant_id.nunique()}')
         dv=kd.loc[kd.split.eq('dev')].rename(columns={'segment_id':'sample_id'}).reset_index(drop=True)
         model,prep,ck=train_one(modality,tr,dv,run_dir,args,device,revisions,source_identity)
         seg=aligned_predictions(modality,model,prep,kd,run_dir,args,device,ck)
