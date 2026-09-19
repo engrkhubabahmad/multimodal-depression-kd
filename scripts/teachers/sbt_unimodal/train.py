@@ -15,7 +15,7 @@ from scripts.teachers.sbt_unimodal.models import AudioSBTTeacher,TextSBTTeacher
 from scripts.teachers.sbt_unimodal.cache import (atomic_torch,atomic_json,digest_file,digest_json,
     frame_digest,stage_sources,build_features)
 
-CODE_VERSION='sbt-unimodal-v2-disk'
+CODE_VERSION='sbt-unimodal-v2-disk-mountfix'
 
 def parse_args(argv=None):
     p=argparse.ArgumentParser()
@@ -305,10 +305,11 @@ def aligned_predictions(modality,model,prep,kd,run_dir,args,device,checkpoint):
 
 def main(argv=None):
     args=parse_args(argv)
-    from google.colab import drive
-    drive.mount('/content/drive')
     seed_all(args.seed); device='cuda' if torch.cuda.is_available() else 'cpu'
-    data_root=Path(args.data_root); exp_root=data_root/'experiments'
+    data_root=Path(args.data_root)
+    if not data_root.is_dir():
+        raise RuntimeError(f'Data root not found: {data_root}. In Colab, mount Google Drive in the notebook process before launching this training subprocess.')
+    exp_root=data_root/'experiments'
     manifest,kd,aud,txt,cache_root,revisions,source_map,source_identity=build_manifests(data_root,exp_root,args.local_cache)
     run_dir=exp_root/'teachers'/'segment_level_v1'/f'seed_{args.seed}'; run_dir.mkdir(parents=True,exist_ok=True)
     protocol=dict(name='RA-PDS-KD',teacher_family='SBT-Net unimodal adaptation',code_version=CODE_VERSION,
