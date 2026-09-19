@@ -72,6 +72,7 @@ def author_intervals(transcript_path: Path) -> list[list[float]]:
     trial = int(transcript_path.parent.name.split("_")[0])
     data = transcript_path.read_text(encoding="utf-8", errors="ignore").splitlines()
     inter: list[list[float]] = []
+    holding_start: float | None = None
     for j, values in enumerate(data):
         if j == 0:
             continue
@@ -105,15 +106,11 @@ def author_intervals(transcript_path: Path) -> list[list[float]]:
                 nxt = data[j + 2].split()[0:3]
         else:
             nxt = ["", "", "Ellie"]
-        if not prev or prev[-1] != "Participant":
+        if not prev or prev[-1] != "Participant" or holding_start is None:
             holding_start = start
-        else:
-            holding_start = inter[-1][0] if inter else start
         if nxt and nxt[-1] == "Participant":
-            if inter and inter[-1][1] == start:
-                inter.pop()
             continue
-        inter.append([holding_start, stop])
+        inter.append([holding_start, stop]); holding_start = None
     if not inter:
         raise ValueError(f"{trial}: no Participant intervals")
     return inter
