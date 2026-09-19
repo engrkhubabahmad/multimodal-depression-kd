@@ -31,11 +31,9 @@ def main(argv=None):
     model=author.InducTGCN(state['embedding_dim'],state['classes_'],0,vectorizer); model.load_state_dict(state['model_state_dict']); model.A_B=state['A_dev']; model.classes_=state['classes_']; model.to(author.DEVICE); model.Conv_0_Test=None
     classes=list(model.classes_); pos=classes.index('positive'); y=np.array([r['label'] for r in rows]); selected=[i for i,pid in enumerate(DEV_IDS) if pid not in excluded]
     all_exact,_=checkpoint_probabilities(model,list(range(len(DEV_IDS)))); all_y=np.array([ymap[i] for i in DEV_IDS]); official_result=metrics(all_y,(all_exact[:,pos]>=.5).astype(int),all_exact[:,pos])
-    exact,exact_tfidf=checkpoint_probabilities(model,selected); exact_prob=exact[:,pos]; exact_pred=(exact_prob>=.5).astype(int); exact_result=metrics(y,exact_pred,exact_prob)
-    model.Conv_0_Test=None; raw=model(docs).detach().cpu().numpy()[:,pos]; raw_pred=(raw>=.5).astype(int); raw_result=metrics(y,raw_pred,raw)
-    raw_tfidf=vectorizer.transform(docs).toarray(); denom=np.linalg.norm(raw_tfidf,axis=1)*np.linalg.norm(exact_tfidf,axis=1); cosine=np.divide((raw_tfidf*exact_tfidf).sum(1),denom,out=np.zeros_like(denom),where=denom>0)
-    for r,q,z,rq,rz,c in zip(rows,exact_prob,exact_pred,raw,raw_pred,cosine): r.update(prob_depressed=float(q),prediction=int(z),raw_reconstructed_probability=float(rq),raw_reconstructed_prediction=int(rz),raw_to_author_tfidf_cosine=float(c))
-    pd.DataFrame(rows).to_csv(out/'dev_predictions.csv',index=False); result={'model':'idiap/participant-induct-gcn-top250','official_checkpoint_dev35':official_result,'local_checkpoint_dev34':exact_result,'raw_reconstructed_dev34':raw_result,'mean_raw_to_author_tfidf_cosine':float(cosine.mean()),'excluded_ids':sorted(excluded),'test_opened':False}; save_json(out/'metrics.json',result)
-    print('Exact author checkpoint | DEV-35:',official_result); print('Exact author checkpoint | DEV-34:',exact_result); print('Raw reconstruction      | DEV-34:',raw_result); print('Mean raw/author TF-IDF cosine:',result['mean_raw_to_author_tfidf_cosine']); return result
+    exact,_=checkpoint_probabilities(model,selected); exact_prob=exact[:,pos]; exact_pred=(exact_prob>=.5).astype(int); exact_result=metrics(y,exact_pred,exact_prob)
+    for r,q,z in zip(rows,exact_prob,exact_pred): r.update(prob_depressed=float(q),prediction=int(z))
+    pd.DataFrame(rows).to_csv(out/'dev_predictions.csv',index=False); result={'model':'idiap/participant-induct-gcn-top250','official_checkpoint_dev35':official_result,'local_checkpoint_dev34':exact_result,'excluded_ids':sorted(excluded),'test_opened':False}; save_json(out/'metrics.json',result)
+    print('Exact author checkpoint | DEV-35:',official_result); print('Exact author checkpoint | DEV-34:',exact_result); return result
 
 if __name__=='__main__': main()
