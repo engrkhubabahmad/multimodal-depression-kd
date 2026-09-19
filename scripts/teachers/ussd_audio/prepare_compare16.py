@@ -49,9 +49,11 @@ def main(argv=None):
     else: merged = pd.DataFrame(rows)
     merged.sort_values(["split", "participant_id"]).to_csv(current, index=False)
     help_run = subprocess.run([smile, "-h"], capture_output=True, text=True)
-    banner = (help_run.stdout or help_run.stderr).splitlines()
-    summary = {"prepared": int(len(rows)), "splits": sorted(set(r["split"] for r in rows)), "manifest": str(current), "compare16_config": str(config), "compare16_config_sha256": sha256(config), "smile_extract": smile, "smile_banner": banner[0] if banner else "unknown", "test_opened": False}
-    save_json(out / "preprocessing_manifest.json", summary)
+    banner = (help_run.stdout or help_run.stderr).splitlines(); config_hash = sha256(config)
+    summary = {"prepared": int(len(rows)), "splits": sorted(set(r["split"] for r in rows)), "manifest": str(current), "compare16_config": str(config), "compare16_config_sha256": config_hash, "smile_extract": smile, "smile_banner": banner[0] if banner else "unknown", "wav_bridge": "lossless PCM16 sample copy using author time indices", "label_source": "local AVEC split CSV; no author-side relabel during adaptation", "test_opened": False}
+    for split in summary["splits"]:
+        split_summary = {**summary, "splits": [split], "prepared": int(sum(r["split"] == split for r in rows))}
+        save_json(out / f"preprocessing_{split}.json", split_summary)
     print(json.dumps(summary, indent=2)); return summary
 
 
