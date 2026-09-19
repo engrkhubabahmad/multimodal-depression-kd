@@ -16,9 +16,9 @@ TRAIN = 107 participants. DEV = 34 participants. Participant 440 is excluded. TE
 
 ## Exact preprocessing contract
 
-Raw DAIC-WOZ -> author-style Participant timing extraction (including published interruption/misalignment corrections) -> concatenated patient-only PCM16 WAV -> author-style `SMILExtract -C ComParE_2016.conf` -> drop `name` and `frameTime` -> preserve the author's flatten/reshape behavior -> 130 x 384 non-overlapping segments with zero-padding -> released run #4 `data_saver.pickle` mean/std normalization.
+Raw DAIC-WOZ -> author-style Participant timing extraction (including published interruption/misalignment corrections) -> lossless PCM16 sample-copy bridge to the author-required patient-only WAV -> author-style `SMILExtract -C ComParE_2016.conf` -> drop `name` and `frameTime` -> preserve the author's flatten/reshape behavior -> 130 x 384 non-overlapping segments with zero-padding -> released run #4 `data_saver.pickle` mean/std normalization.
 
-There is deliberately **no Python openSMILE fallback**. If `SMILExtract`, the ComParE16 config, checkpoint, or saved normalization artifact is missing, the run stops.
+The repository does not release the helper that serialised the concatenated Participant array to `*_P_audio_data.wav`; this implementation therefore copies the selected mono PCM16 samples losslessly and records that bridge explicitly. There is deliberately **no Python openSMILE fallback**. If `SMILExtract`, the ComParE16 config, checkpoint, or saved normalization artifact is missing, the run stops.
 
 The author hard participant prediction is reproduced separately from KD soft targets:
 
@@ -62,6 +62,7 @@ python -m scripts.teachers.ussd_audio.prepare_compare16 \
 python -m scripts.teachers.ussd_audio.finetune \
   --features /content/drive/MyDrive/DAIC_WOZ/experiments/ussd_compare16 \
   --author-root /content/solo_teacher_sources/USSD-depression \
+  --audit-json /content/drive/MyDrive/DAIC_WOZ/experiments/ussd_frozen_audit/audit.json \
   --output /content/drive/MyDrive/DAIC_WOZ/experiments/ussd_finetuned
 ```
 
@@ -69,4 +70,4 @@ python -m scripts.teachers.ussd_audio.finetune \
 
 ### Fine-tuning caveat
 
-The released frozen checkpoint is fully usable for inference. The original full USSD training objective also referenced an external speaker-embedding artifact that is not released in the repository. Therefore this implementation fine-tunes the released depression network with depression loss only and labels it **TRAIN-only adaptation**, not an exact reproduction of the auxiliary speaker-disentanglement training objective.
+The released frozen checkpoint is fully usable for inference. The original full USSD training objective also referenced an external speaker-embedding artifact that is not released in the repository. Therefore this implementation fine-tunes the released depression network with participant-balanced depression loss only and labels it **TRAIN-only adaptation**, not an exact reproduction of the auxiliary speaker-disentanglement training objective.
