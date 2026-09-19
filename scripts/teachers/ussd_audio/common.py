@@ -69,7 +69,7 @@ def resolve_protocol_splits(root: Path, exclude: set[int] | None = None) -> tupl
 
 def author_intervals(transcript_path: Path) -> list[list[float]]:
     """Behavioral port of the pinned author's transcript_file_processing()."""
-    trial = int(transcript_path.parent.name.split("_")[0])
+    parent_token = transcript_path.parent.name.split("_")[0]\n    file_token = transcript_path.name.split("_")[0]\n    trial = int(parent_token) if parent_token.isdigit() else int(file_token)
     data = transcript_path.read_text(encoding="utf-8", errors="ignore").splitlines()
     inter: list[list[float]] = []
     holding_start: float | None = None
