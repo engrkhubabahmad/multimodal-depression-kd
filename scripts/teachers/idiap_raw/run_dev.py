@@ -27,13 +27,13 @@ def one(root, pattern):
 
 def participant_document(root, pid):
     path = one(root, f"{pid}_TRANSCRIPT.csv")
-    frame = pd.read_csv(path, sep="\\t").fillna("")
+    frame = pd.read_csv(path, sep="\t").fillna("")
     required = {"start_time","stop_time","speaker","value"}
     if required - set(frame.columns):
         raise ValueError(f"{path}: required transcript columns are absent")
     frame = frame.sort_values(["start_time","stop_time"], kind="stable")
     speaker = frame["speaker"].astype(str).str.strip().str.casefold()
-    value = frame["value"].astype(str).str.replace("\\x00"," ", regex=False).str.replace(r"\\s+"," ", regex=True).str.strip()
+    value = frame["value"].astype(str).str.replace("\x00"," ", regex=False).str.replace(r"\s+"," ", regex=True).str.strip()
     keep = (speaker == "participant") & value.ne("") & ~value.str.contains("scrubbed_entry", case=False, regex=False)
     text = " ".join(value[keep].tolist())
     if not text:
@@ -90,7 +90,7 @@ def main(argv=None):
     result = {"n": len(ids), "accuracy": float(accuracy_score(y, pred)), "macro_f1": float(classification_report(y, pred, output_dict=True, zero_division=0)["macro avg"]["f1-score"]), "auroc": float(roc_auc_score(y, probability)), "confusion_matrix": confusion_matrix(y, pred, labels=[0,1]).tolist(), "threshold": 0.5, "input": "raw_local_transcripts", "test_opened": False, "excluded_ids": sorted(a.exclude)}
     out.mkdir(parents=True, exist_ok=True)
     pd.DataFrame({"participant_id":ids, "label":y, "prob_depressed":probability, "prediction":pred, "document":documents}).to_json(out / "dev_raw_predictions.jsonl", orient="records", lines=True, force_ascii=False)
-    (out / "dev_raw_metrics.json").write_text(__import__("json").dumps(result, indent=2) + "\\n")
+    (out / "dev_raw_metrics.json").write_text(__import__("json").dumps(result, indent=2))
     print(result)
     return result
 
