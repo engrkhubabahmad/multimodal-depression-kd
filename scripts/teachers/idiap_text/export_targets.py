@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse,importlib.util,json,pickle
+import argparse,importlib.util,json,pickle,sys,types
 from pathlib import Path
 import numpy as np,pandas as pd,torch
 from sklearn.metrics import accuracy_score,classification_report,confusion_matrix,roc_auc_score
@@ -10,6 +10,7 @@ def one(root,p):
     return h[0]
 
 def load_author(path):
+    if "optuna" not in sys.modules: sys.modules["optuna"]=types.ModuleType("optuna")
     s=importlib.util.spec_from_file_location("idiap_author_main",path); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
 
 def local_labels(path):
