@@ -11,15 +11,16 @@ def resolve_executable(v):
     if not p or not Path(p).exists(): raise FileNotFoundError(f"SMILExtract not found: {v}")
     return str(p)
 
-def cached_feature(csv_path,feat_path):
+def cached_feature(csv,feat):
     try:
-        if feat_path.exists():
-            x=np.load(feat_path)
-            if x.ndim==2 and x.shape[0]==130 and x.shape[1]>0 and np.isfinite(x).all(): return x
-        if csv_path.exists():
-            x=compare16_matrix(csv_path)
-            if x.shape[0]==130 and x.shape[1]>0 and np.isfinite(x).all():
-                np.save(feat_path,x); return x
+        if feat.exists():
+            x=np.load(feat,mmap_mode="r")
+            if x.ndim==2 and x.shape[0]==130 and x.shape[1]>0: return x
+        if csv.exists():
+            x=compare16_matrix(csv)
+            if x.shape[0]==130 and x.shape[1]>0 and np.isfinite(x).all(): np.save(feat,x); return x
+    except OSError as e:
+        if getattr(e,"errno",None)==107: raise RuntimeError("Google Drive mount disconnected. Remount Drive, then rerun; completed cached participants will be reused.") from e
     except Exception: pass
     return None
 
@@ -28,20 +29,25 @@ def process_split(root,frame,split,out,smile,config,keep_wav):
     bar=tqdm(frame.itertuples(index=False),total=len(frame),desc=f"USSD {split} ComParE16",colour="green")
     for row in bar:
         pid,label=int(row.participant_id),int(row.label)
-        raw=one(root,f"{pid}_AUDIO.wav"); tr=one(root,f"{pid}_TRANSCRIPT.csv")
         wav=out/"patient_wav"/split/f"{pid}_P_audio_data.wav"; csv=out/"compare16_csv"/split/f"{pid}_P_audio_data.csv"; feat=out/"participant_features"/split/f"{pid}.npy"
         csv.parent.mkdir(parents=True,exist_ok=True); feat.parent.mkdir(parents=True,exist_ok=True)
-        x=cached_feature(csv,feat); meta={"sample_rate":None,"samples":None,"seconds":None,"wav_bridge":"reused cached ComParE16"}
-        if x is not None: reused+=1
+        x=cached_feature(csv,feat); cached=x is not None
+        if cached:
+            reused+=1; meta={"sample_rate":None,"samples":None,"seconds":None,"wav_bridge":"reused cached ComParE16"}
+            raw_hash=tr_hash=wav_hash=csv_hash=None
         else:
-            csv.unlink(missing_ok=True); feat.unlink(missing_ok=True)
+            raw=one(root,f"{pid}_AUDIO.wav"); tr=one(root,f"{pid}_TRANSCRIPT.csv")
+            try: csv.unlink(missing_ok=True); feat.unlink(missing_ok=True)
+            except OSError as e:
+                if getattr(e,"errno",None)==107: raise RuntimeError("Google Drive mount disconnected. Remount Drive and rerun.") from e
+                raise
             meta=extract_participant_wav(raw,tr,wav)
             subprocess.run([smile,"-C",str(config),"-I",str(wav),"-D",str(csv)],stdout=subprocess.DEVNULL,stderr=subprocess.STDOUT,check=True)
             x=compare16_matrix(csv); np.save(feat,x)
+            raw_hash,tr_hash,csv_hash=sha256(raw),sha256(tr),sha256(csv); wav_hash=sha256(wav)
             if not keep_wav: wav.unlink(missing_ok=True)
         rows.append({"split":split,"participant_id":pid,"label":label,"feature_path":str(feat),"compare16_csv":str(csv),"frames":int(x.shape[1]),**meta,
-                     "raw_audio_sha256":sha256(raw),"transcript_sha256":sha256(tr),"patient_wav_sha256":sha256(wav) if wav.exists() else None,
-                     "compare16_csv_sha256":sha256(csv),"reused_cache":x is not None and meta["wav_bridge"]=="reused cached ComParE16"})
+                     "raw_audio_sha256":raw_hash,"transcript_sha256":tr_hash,"patient_wav_sha256":wav_hash,"compare16_csv_sha256":csv_hash,"reused_cache":cached})
         bar.set_postfix(reused=reused,new=len(rows)-reused)
     return rows
 
