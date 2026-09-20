@@ -42,17 +42,30 @@ Code: `scripts/teachers/idiap_text/`
 Expected Drive artifacts:
 
 ```text
+DAIC_WOZ/experiments/ussd_frozen_audit/
+  audit.json
+  dev_participant_predictions.csv
+
 DAIC_WOZ/experiments/ussd_audio_teacher_final/
   train_run4_crop_kd_targets.csv
   train_run4_crop_audit.json
-  dev_predictions.csv
-  metrics.json
 
 DAIC_WOZ/experiments/idiap_text_teacher/
   train_text_kd_targets.csv
   dev_text_predictions.csv
   text_target_audit.json
 ```
+
+## Colab notebooks
+
+Run in order:
+
+1. `notebooks/01_text_teacher.ipynb` — reproduce/export the locked Idiap text teacher.
+2. `notebooks/02_audio_teacher.ipynb` — reproduce/audit the frozen USSD audio teacher and export TRAIN KD targets.
+3. `notebooks/03_student_baseline.ipynb` — no-KD student baseline; gated until the participant-correct student runner is committed.
+4. `notebooks/04_kd.ipynb` — standard + reliability-aware KD; gated until the participant-correct KD runner is committed.
+
+Teacher notebooks are runnable now. Student/KD notebooks deliberately refuse to execute the obsolete segment-teacher-dependent training path.
 
 ## Student status
 
