@@ -1,10 +1,11 @@
 from __future__ import annotations
-import argparse,hashlib,json
+import argparse,hashlib,json,math
 from pathlib import Path
-import numpy as np,pandas as pd
+import numpy as np,pandas as pd,soundfile as sf
+from scipy.signal import resample_poly
 from tqdm.auto import tqdm
 from . import SEGMENT_CONFIG
-from .data import read_split,find_sources,read_turns,segment_turns,build_vocab,encode_tokens,load_audio_segment,logmel_summary,fit_standardizer,standardize,sha256_file
+from .data import read_split,find_sources,read_turns,segment_turns,build_vocab,encode_tokens,logmel_summary,fit_standardizer,standardize,sha256_file
 
 def main(argv=None):
     p=argparse.ArgumentParser(); p.add_argument("--daic-root",required=True); p.add_argument("--output",required=True)
@@ -21,21 +22,32 @@ def main(argv=None):
     vhash=hashlib.sha256(json.dumps(vocab,sort_keys=True).encode()).hexdigest()
     signature=hashlib.sha256(json.dumps({"cfg":SEGMENT_CONFIG,"vocab_sha256":vhash},sort_keys=True).encode()).hexdigest()
     cache=out/"cache"; cache.mkdir(exist_ok=True)
-    rows=[]
-    for r in tqdm(list(manifest.itertuples()),desc="Build/resume participant features",colour="green"):
+    rows=[]; cached=0
+    bar=tqdm(list(manifest.itertuples()),desc="Build/resume participant features",colour="green")
+    for r in bar:
         pid=int(r.participant_id); cp=cache/r.split/f"{pid}.npz"; cp.parent.mkdir(parents=True,exist_ok=True); ss=segs[pid]
         valid=False
         if cp.exists():
             try:
                 with np.load(cp,allow_pickle=False) as z: valid=str(z["signature"].item())==signature and len(z["segment_ids"])==len(ss)
             except Exception: valid=False
-        if not valid:
+        if valid:
+            cached+=1; bar.set_postfix(pid=pid,status="cached",cached=cached)
+        else:
             ap,_=sources[pid]; af=[]; tx=[]; starts=[]; stops=[]; ids=[]
-            for s in ss:
-                x=load_audio_segment(ap,s["start"],s["stop"],SEGMENT_CONFIG["sample_rate"])
-                af.append(logmel_summary(x,SEGMENT_CONFIG["sample_rate"],SEGMENT_CONFIG["n_mels"]))
-                tx.append(encode_tokens(s["tokens"],vocab,SEGMENT_CONFIG["max_text_tokens"]))
-                starts.append(s["start"]); stops.append(s["stop"]); ids.append(s["segment_id"])
+            bar.set_postfix(pid=pid,status="extract",segments=len(ss),cached=cached)
+            with sf.SoundFile(ap) as wav:
+                sr=int(wav.samplerate)
+                for s in ss:
+                    wav.seek(min(round(float(s["start"])*sr),len(wav)))
+                    x=wav.read(max(1,round((float(s["stop"])-float(s["start"]))*sr)),dtype="float32",always_2d=True).mean(1)
+                    assert len(x) and np.isfinite(x).all()
+                    if sr!=SEGMENT_CONFIG["sample_rate"]:
+                        g=math.gcd(sr,SEGMENT_CONFIG["sample_rate"])
+                        x=resample_poly(x,SEGMENT_CONFIG["sample_rate"]//g,sr//g).astype(np.float32)
+                    af.append(logmel_summary(x,SEGMENT_CONFIG["sample_rate"],SEGMENT_CONFIG["n_mels"]))
+                    tx.append(encode_tokens(s["tokens"],vocab,SEGMENT_CONFIG["max_text_tokens"]))
+                    starts.append(s["start"]); stops.append(s["stop"]); ids.append(s["segment_id"])
             with open(cp.with_suffix(".tmp"),"wb") as f:
                 np.savez_compressed(f,audio_raw=np.asarray(af,np.float32),text_ids=np.asarray(tx,np.int64),
                     starts=np.asarray(starts,np.float32),stops=np.asarray(stops,np.float32),segment_ids=np.asarray(ids,dtype="U32"),signature=signature)
