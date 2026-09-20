@@ -12,63 +12,54 @@ Strict participant-disjoint DAIC-WOZ protocol:
 ## Locked teachers
 
 ### Audio teacher
+
 Ravi et al. USSD, ComParE16 + LSTM-only, released run #4.
 
 - author commit: `c3e68649153004ed2174878a1c54c716ad26cfd7`
 - checkpoint: `md_35_epochs.pth`
 - frozen DEV-34 macro-F1: 0.7875
+- exact active-model parameters: 1,153,537
+- input per segment: 130 ComParE16 channels × 384 frames
 - TRAIN KD targets: author-style run-4 seed-1300, 6662-frame crop
 - no fine-tuning in the active path
 
 Code: `scripts/teachers/ussd_audio/`
 
 ### Text teacher
+
 Idiap participant-level InducT-GCN top-250.
 
 - published checkpoint + vectorizer
+- frozen DEV-34 macro-F1: 0.8418604651
+- top-250 TF-IDF participant documents
+- 250 → 64 graph projection → 2-class output
+- exact trainable weights from the published architecture: 16,128
 - TRAIN KD targets: checkpoint training-graph document nodes
 - DEV targets: saved `A_dev`, participant 440 excluded
-- DEV-34 macro-F1: 0.8418604651
 - TEST never opened
 
 Code: `scripts/teachers/idiap_text/`
 
-## Active teacher outputs
+## Active student candidate: rich compact v2
 
-```text
-DAIC_WOZ/experiments/ussd_frozen_audit/
-  audit.json
-  dev_participant_predictions.csv
+The previous 670k `ParticipantReLiMPNet` mean/std-log-Mel student is retained as **v0 experimental history**. Its DEV-34 no-KD macro-F1 was 0.6092 and its equal Standard-KD run was 0.5729.
 
-DAIC_WOZ/experiments/ussd_audio_teacher_final/
-  train_run4_crop_kd_targets.csv
-  train_run4_crop_audit.json
+The active candidate is `RichParticipantStudent-v2`:
 
-DAIC_WOZ/experiments/idiap_text_teacher/
-  train_text_kd_targets.csv
-  dev_text_predictions.csv
-  text_target_audit.json
-```
+- reuses existing patient-only USSD-compatible ComParE16 **input features**, not teacher predictions or hidden states
+- independently refits TRAIN-only acoustic normalization
+- independently fits TRAIN-only top-250 TF-IDF from Participant transcripts
+- temporal Conv1D + depthwise temporal Conv + small GRU audio encoder
+- compact text MLP
+- text-conditioned attention over acoustic segments
+- participant-level multimodal classifier
+- expected trainable size: about 227k parameters, much smaller than the audio teacher
+- threshold fixed at 0.5
+- TEST not prepared or opened
 
-## Active student
+Code: `scripts/students/participant_student_v2/`
 
-`ParticipantReLiMPNet` is the active student.
-
-Per participant:
-- up to 128 aligned Participant-only segments
-- max 10 s audio/segment, min 0.5 s
-- audio input: 64-bin log-Mel mean + std = 128-D/segment
-- text input: TRAIN-only vocabulary, max 64 token IDs/segment
-- audio MLP + one-layer 4-head text Transformer
-- per-segment multimodal fusion
-- masked attention pooling across participant segments
-- one participant depression logit
-
-No-KD training uses TRAIN-107 hard labels only. Checkpoint selection uses DEV-34 participant macro-F1 at a fixed 0.5 threshold. TEST is not prepared or opened.
-
-Code: `scripts/students/participant_student/`
-
-The training run automatically exports participant predictions, metrics, confusion/classification reports, parameter counts, checkpoint size, profiled GFLOPs, latency, throughput, and peak CUDA memory.
+Design audit: `docs/student_v2_design.md`
 
 ## Colab notebooks
 
@@ -76,9 +67,9 @@ Run in order:
 
 1. `notebooks/01_text_teacher.ipynb`
 2. `notebooks/02_audio_teacher.ipynb`
-3. `notebooks/03_student_baseline.ipynb` — runnable now
-4. `notebooks/04_kd.ipynb` — standard + reliability-aware KD, implemented after the no-KD baseline is accepted
+3. `notebooks/03_student_baseline.ipynb` — active v2 rich No-KD student
+4. `notebooks/04_kd.ipynb` — intentionally gated until the v2 No-KD result is frozen
 
-The obsolete segment-level teacher/student code has been removed from `main`.
+Do not mix the old v0 Standard-KD checkpoint/results with the v2 student.
 
 TEST must remain closed.
