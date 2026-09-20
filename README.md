@@ -1,68 +1,61 @@
 # reliability-aware-depression-kd
 
-## Active methodology: RA-PDS-KD
+## Active protocol
 
-**Reliability-Aware Participant-Disjoint Segment-Level Knowledge Distillation**
-
-This repository now has one active Colab workflow:
-
-`notebooks/RA_PDS_KD_pipeline.ipynb`
-
-Run it top-to-bottom in one Colab runtime. Reusable implementation stays under `scripts/`; experiment data/caches/checkpoints stay in Google Drive.
-
-### Data protocol
+This repository uses a strict participant-disjoint DAIC-WOZ protocol:
 
 - TRAIN: 107 participants
-- DEV: 34 usable participants (participant 440 excluded because its original files are corrupted)
+- DEV: 34 participants
+- participant 440 excluded from DEV
 - TEST: 47 participants, closed until the final student is frozen
-- Participant split happens **before** segmentation
-- Audio/text use aligned segment IDs
-- Teacher and student evaluation are **segment-level only**
-- No participant-level prediction aggregation
-- Missing/noisy robustness experiments use TRAIN/DEV only
-- Final TEST is **clean-only** using the frozen final student and fixed DEV threshold
 
-### Pipeline
+## Locked teachers
 
-1. Segment-level audio/text teachers
-   - aligned TRAIN/DEV segments
-   - modality-specific caches under `experiments/features/rapdskd_segments_<hash>/`
-   - Wav2Vec2 audio embeddings + MiniLM text embeddings
-   - DEV teacher evaluation only
-2. Aligned TRAIN/DEV teacher probabilities and confidence priors
-3. Lightweight ReLiMP-Net TRAIN/DEV segment features
-4. Three student experiments:
-   - No KD
-   - Standard KD
-   - Reliability-Aware Robust KD
-5. DEV robustness evaluation:
-   - Clean
-   - Audio missing
-   - Text missing
-   - Audio noisy
-   - Text noisy
-6. Freeze final student/checkpoint/DEV threshold
-7. Open TEST once and run **clean TEST only**
+### Audio teacher
 
-### Reliability rule
+Ravi et al. USSD, ComParE16 + LSTM-only, released run #4:
 
-For Student 3:
+- author commit: `c3e68649153004ed2174878a1c54c716ad26cfd7`
+- checkpoint: `md_35_epochs.pth`
+- author normalization reused
+- frozen DEV-34 macro-F1: 0.7875
+- TRAIN KD targets: author-style run-4 seed-1300, 6662-frame crop, participant-level mean probability/logit
+- no fine-tuning is part of the active teacher path
 
-`r_audio = audio_quality × audio_teacher_confidence`
+Code: `scripts/teachers/ussd_audio/`
 
-`r_text = text_quality × text_teacher_confidence`
+### Text teacher
 
-Missing modality quality is 0. Clean quality is 1. Noisy quality is reduced according to corruption severity. Normalized reliabilities weight the two teacher targets during KD. Reliability-aware feature fusion at student inference uses modality quality and does not require teacher inference.
+Idiap participant-level InducT-GCN top-250:
 
-### Active code
+- published checkpoint + vectorizer
+- TRAIN KD targets: checkpoint training-graph document nodes
+- DEV targets: saved `A_dev`, participant 440 excluded
+- DEV-34 macro-F1: 0.8418604651
+- participant-level probability and binary logit exported directly from the checkpoint
+- TEST is never opened
 
-- `scripts/teachers/train_segment_teachers.py`
-- `scripts/kd/build_reliability_targets.py`
-- `scripts/kd/reliability_loss.py`
-- `scripts/students/data_utils.py`
-- `scripts/students/relimpnet_segment.py`
-- `scripts/students/prepare_segment_features.py`
-- `scripts/students/train_segment_students.py`
-- `scripts/students/evaluate_final_clean_test.py`
+Code: `scripts/teachers/idiap_text/`
 
-The old participant-level frozen/full Facebook/Wav2Vec2 teacher runners were removed to prevent accidental use of the obsolete `teacher_v2_*` cache path. The active segment teacher still uses the pretrained Wav2Vec2 encoder for **segment embeddings**, but it is a different participant-disjoint segment-level pipeline and writes only `rapdskd_segments_*` caches.
+## Active teacher outputs
+
+Expected Drive artifacts:
+
+```text
+DAIC_WOZ/experiments/ussd_audio_teacher_final/
+  train_run4_crop_kd_targets.csv
+  train_run4_crop_audit.json
+  dev_predictions.csv
+  metrics.json
+
+DAIC_WOZ/experiments/idiap_text_teacher/
+  train_text_kd_targets.csv
+  dev_text_predictions.csv
+  text_target_audit.json
+```
+
+## Student status
+
+The old segment-teacher pipeline has been removed. Existing student files are retained only as a backbone for migration. Do not start student training until the student pipeline is updated to consume the locked participant-level teachers and select/evaluate checkpoints at participant level.
+
+TEST must remain closed.
