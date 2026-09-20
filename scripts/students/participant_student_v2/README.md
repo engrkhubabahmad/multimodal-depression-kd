@@ -31,6 +31,6 @@ Fusion:
 - concatenate audio, text, elementwise product, absolute difference
 - 384 -> 128 -> 32 -> 1 classifier
 
-Expected trainable size is about 227k parameters, far below the frozen USSD audio teacher (1,153,537 parameters).
+Expected trainable size is about 260k parameters, far below the frozen USSD audio teacher (1,153,537 parameters).
 
 No-KD training loads no teacher probabilities. TEST is not prepared or opened.

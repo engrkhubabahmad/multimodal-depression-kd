@@ -21,17 +21,22 @@ class AudioSegmentEncoder(nn.Module):
         return self.proj(h[-1]).reshape(b,s,-1)
 
 class TextDocumentEncoder(nn.Module):
-    def __init__(self,input_dim=250,d_model=96,dropout=.30):
-        super().__init__()
-        self.net=nn.Sequential(nn.LayerNorm(input_dim),nn.Linear(input_dim,128),nn.GELU(),nn.Dropout(dropout),
+    def __init__(self,text_graph,d_model=96,dropout=.30):
+        super().__init__(); g=torch.as_tensor(text_graph,dtype=torch.float32)
+        assert g.ndim==2 and g.shape[0]==g.shape[1]
+        self.register_buffer("graph",g)
+        input_dim=int(g.shape[0])
+        self.net=nn.Sequential(nn.LayerNorm(input_dim*2),nn.Linear(input_dim*2,128),nn.GELU(),nn.Dropout(dropout),
                                nn.Linear(128,d_model),nn.GELU(),nn.LayerNorm(d_model))
-    def forward(self,x): return self.net(x)
+    def forward(self,x):
+        smooth=x@self.graph
+        return self.net(torch.cat([x,smooth],dim=-1))
 
 class RichParticipantStudent(nn.Module):
-    """227k-class multimodal student with text-conditioned acoustic attention."""
-    def __init__(self,text_dim=250,d_model=96,dropout=.35):
+    """~260k multimodal student with TRAIN-only graph-smoothed text and text-conditioned acoustic attention."""
+    def __init__(self,text_graph,d_model=96,dropout=.35):
         super().__init__(); self.d_model=d_model
-        self.audio=AudioSegmentEncoder(d_model=d_model); self.text=TextDocumentEncoder(text_dim,d_model)
+        self.audio=AudioSegmentEncoder(d_model=d_model); self.text=TextDocumentEncoder(text_graph,d_model)
         self.query=nn.Linear(d_model,d_model,bias=False); self.key=nn.Linear(d_model,d_model,bias=False)
         self.salience=nn.Linear(d_model,1)
         self.classifier=nn.Sequential(nn.Linear(4*d_model,128),nn.GELU(),nn.Dropout(dropout),

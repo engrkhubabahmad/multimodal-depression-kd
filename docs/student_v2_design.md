@@ -59,14 +59,14 @@ Audio:
 
 Text:
 - independent TRAIN-only top-250 TF-IDF
-- 250 → 128 → 96 MLP
+- top-250 TF-IDF + fixed TRAIN-only positive-PMI graph diffusion\n- concatenate original + graph-smoothed TF-IDF\n- 500 → 128 → 96 MLP
 
 Fusion:
 - text-conditioned acoustic-segment attention
 - concatenate audio, text, elementwise product, absolute difference
 - 384 → 128 → 32 → 1
 
-Expected trainable parameter count from the implementation: about **227k**, approximately 20% of the audio teacher.
+Expected trainable parameter count from the implementation: about **260k**, approximately 23% of the audio teacher.
 
 ## Protocol safeguards
 

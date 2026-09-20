@@ -48,12 +48,12 @@ The active candidate is `RichParticipantStudent-v2`:
 
 - reuses existing patient-only USSD-compatible ComParE16 **input features**, not teacher predictions or hidden states
 - independently refits TRAIN-only acoustic normalization
-- independently fits TRAIN-only top-250 TF-IDF from Participant transcripts
+- independently fits TRAIN-only top-250 TF-IDF from Participant transcripts plus a fixed TRAIN-only positive-PMI word graph
 - temporal Conv1D + depthwise temporal Conv + small GRU audio encoder
 - compact text MLP
 - text-conditioned attention over acoustic segments
 - participant-level multimodal classifier
-- expected trainable size: about 227k parameters, much smaller than the audio teacher
+- expected trainable size: about 260k parameters, much smaller than the audio teacher
 - threshold fixed at 0.5
 - TEST not prepared or opened
 

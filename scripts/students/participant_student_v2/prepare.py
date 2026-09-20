@@ -46,6 +46,28 @@ def compare_manifest(root):
         assert x.ndim==2 and x.shape[0]==130 and x.shape[1]>0 and int(r.frames)==x.shape[1],r.participant_id
     return d
 
+def build_pmi_graph(documents,vectorizer,window_size=3):
+    vocab=vectorizer.vocabulary_; k=len(vocab); analyzer=vectorizer.build_analyzer()
+    freq=np.zeros(k,np.float64); co=np.zeros((k,k),np.float64); total=0
+    for doc in documents:
+        ids=[vocab[w] for w in analyzer(doc) if w in vocab]
+        if not ids: continue
+        nw=max(1,len(ids)-window_size+1)
+        for i in range(nw):
+            win=list(set(ids[i:i+window_size])); total+=1
+            freq[win]+=1
+            for a in win:
+                for b in win:
+                    if a!=b: co[a,b]+=1
+    denom=freq[:,None]*freq[None,:]
+    with np.errstate(divide="ignore",invalid="ignore"):
+        graph=np.log(np.divide(co*max(total,1),denom,out=np.zeros_like(co),where=(co>0)&(denom>0)))
+    graph[~np.isfinite(graph)]=0; graph[graph<0]=0; np.fill_diagonal(graph,1.0)
+    degree=graph.sum(1); inv=np.where(degree>0,1/np.sqrt(degree),0)
+    graph=inv[:,None]*graph*inv[None,:]
+    assert graph.shape==(k,k) and np.isfinite(graph).all()
+    return graph.astype(np.float32)
+
 def main(argv=None):
     p=argparse.ArgumentParser(); p.add_argument("--daic-root",required=True); p.add_argument("--compare16-root",required=True); p.add_argument("--output",required=True)
     a=p.parse_args(argv); root,comp,out=Path(a.daic_root),Path(a.compare16_root),Path(a.output); out.mkdir(parents=True,exist_ok=True)
@@ -83,6 +105,7 @@ def main(argv=None):
     xdv=vectorizer.transform(dev_docs).toarray().astype(np.float32)
     assert xtr.shape==(107,k) and xdv.shape==(34,k) and np.isfinite(xtr).all() and np.isfinite(xdv).all()
     np.save(out/"train_text_tfidf.npy",xtr); np.save(out/"dev_text_tfidf.npy",xdv)
+    graph=build_pmi_graph(train_docs,vectorizer,window_size=3); np.save(out/"text_pmi_graph.npy",graph)
     with (out/"text_vectorizer.pkl").open("wb") as f: pickle.dump(vectorizer,f)
     pd.DataFrame({"term":terms}).to_csv(out/"text_top250_terms.csv",index=False)
 
@@ -101,7 +124,7 @@ def main(argv=None):
         "audio_feature_shape":"130 x variable_frames","audio_segment_frames":SEGMENT_FRAMES,"max_audio_segments_per_participant":MAX_AUDIO_SEGMENTS,
         "audio_normalization_source":"all TRAIN-107 ComParE16 frames only",
         "text_source":"Participant-only full interview transcript",
-        "text_representation":"independent TRAIN-only TF-IDF + SelectKBest(f_classif), top-250; teacher vectorizer not used",
+        "text_representation":"independent TRAIN-only TF-IDF + SelectKBest(f_classif), top-250 + fixed one-step TRAIN-only positive-PMI graph diffusion; teacher vectorizer not used",
         "text_features":int(k),"train_audio_segment_stats":segstats(trm),"dev_audio_segment_stats":segstats(dvm),
         "compare16_manifest":str(comp/"participant_manifest.csv")
     }

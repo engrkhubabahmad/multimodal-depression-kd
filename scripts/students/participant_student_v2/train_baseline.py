@@ -36,7 +36,10 @@ def main(argv=None):
     tr=DataLoader(train,batch_size=a.batch_size,shuffle=True,generator=g,collate_fn=collate,num_workers=0)
     tr_eval=DataLoader(train,batch_size=max(1,a.batch_size//2),shuffle=False,collate_fn=collate,num_workers=0)
     dv=DataLoader(dev,batch_size=max(1,a.batch_size//2),shuffle=False,collate_fn=collate,num_workers=0)
-    device=torch.device("cuda" if torch.cuda.is_available() else "cpu"); model=RichParticipantStudent(text_dim=summary["text_features"]).to(device)
+    device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    text_graph=np.load(feat/"text_pmi_graph.npy").astype(np.float32)
+    assert text_graph.shape==(summary["text_features"],summary["text_features"])
+    model=RichParticipantStudent(text_graph=text_graph).to(device)
     params=parameter_count(model); assert params["total"]<300000,params
     print("Device:",device,"| Rich student parameters:",params,"| Audio teacher params=1,153,537 | Text teacher params=16,128")
     print("Student/audio-teacher parameter ratio:",params["total"]/1153537)
