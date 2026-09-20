@@ -21,7 +21,7 @@ class RichParticipantDataset(Dataset):
         return p
     def _indices(self,n,pid):
         if n<=self.max_segments: return np.arange(n,dtype=int)
-        if self.split=="train":
+        if self.split=="train" and self.epoch>=0:
             rng=np.random.default_rng(self.seed+1000003*self.epoch+7919*int(pid))
             return np.sort(rng.choice(n,size=self.max_segments,replace=False))
         return np.linspace(0,n-1,self.max_segments,dtype=int)

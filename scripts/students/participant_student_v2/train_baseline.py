@@ -64,19 +64,20 @@ def main(argv=None):
             stale+=1
             if stale>=a.patience: print("Early stop; best epoch",best_epoch); break
     state=torch.load(ckpt,map_location="cpu",weights_only=False); model.load_state_dict(state["model_state_dict"]); model.to(device)
-    train.set_epoch(0)
+    train.set_epoch(-1)
     tm=save_bundle(predict(model,tr_eval,device,"rich_student_no_kd"),out,"train",.5)
     dm=save_bundle(predict(model,dv,device,"rich_student_no_kd"),out,"dev",.5)
     protocol={"student":"RichParticipantStudent-v2","mode":"no_kd","hard_labels_only":True,"teacher_predictions_loaded":False,
               "audio_representation":"cached USSD-compatible ComParE16 input features, independently TRAIN-normalized",
-              "text_representation":"independently fitted TRAIN-only top-250 TF-IDF",
+              "text_representation":"independently fitted TRAIN-only top-250 TF-IDF + fixed TRAIN-only positive-PMI graph diffusion",
               "train_participants":107,"dev_participants":34,"participant_440_excluded":True,
               "checkpoint_selection":"DEV-34 participant macro-F1; threshold fixed at 0.5","best_epoch":best_epoch,
               "test_opened":False,"test_prepared":False}
     (out/"metrics.json").write_text(json.dumps({"train":tm,"dev34":dm,"protocol":protocol},indent=2)+"\n")
     (out/"training_protocol.json").write_text(json.dumps(protocol,indent=2)+"\n")
-    b=next(iter(DataLoader(dev,batch_size=1,shuffle=False,collate_fn=collate,num_workers=0)))
-    comp=profile_model(model,b["audio"],b["text"],b["mask"],device,ckpt); comp["audio_teacher_parameters"]=1153537; comp["text_teacher_parameters"]=16128
+    prof_idx=int(np.argmax(np.ceil(dev.meta.frames.to_numpy(float)/384.0)))
+    b=collate([dev[prof_idx]])
+    comp=profile_model(model,b["audio"],b["text"],b["mask"],device,ckpt); comp["profile_segments_basis"]="DEV participant with maximum capped segment coverage"; comp["audio_teacher_parameters"]=1153537; comp["text_teacher_parameters"]=16128
     comp["parameter_ratio_vs_audio_teacher"]=comp["total_parameters"]/1153537; save_complexity(out/"model_complexity.json",comp)
     design={"student_parameters":params["total"],"audio_teacher_parameters":1153537,"text_teacher_parameters":16128,
             "student_is_smaller_than_audio_teacher":params["total"]<1153537,
