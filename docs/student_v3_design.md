@@ -97,3 +97,25 @@ Loss:
 - total = 0.5 * hard + 0.5 * KD
 
 No DEV teacher targets enter training or teacher scaling. TEST remains closed. RA-KD must use these same normalized q_m targets so its only methodological change is reliability weighting.
+
+
+## Reliability-Aware KD (fixed controlled condition)
+
+RA-KD uses the exact Standard-KD backbone, initialization seed, TRAIN-only embedding standardizers, optimizer, temperature, KD weight, threshold, and checkpoint-selection rule. The only methodological change is participant-specific teacher reliability weighting.
+
+For modality m:
+- s_m = median_TRAIN(|z_m|), identical to Standard KD
+- u_m = z_m / s_m
+- q_m = sigmoid(u_m / T), identical to Standard KD
+- c_m = 1 - exp(-|u_m|)
+- w_m = c_m / (c_audio + c_text)
+- q_RA = w_audio q_audio + w_text q_text
+
+If both c values are numerically zero, weights fall back to 0.5/0.5.
+
+Loss remains:
+- hard = class-weighted participant BCE
+- KD = T^2 * BCEWithLogits(student_logit/T, q_RA)
+- total = 0.5 * hard + 0.5 * KD
+
+No DEV-derived reliability, scale, threshold, or teacher target is used. TEST remains closed.
