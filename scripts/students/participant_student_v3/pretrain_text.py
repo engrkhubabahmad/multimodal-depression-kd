@@ -137,14 +137,29 @@ def build_graph(docs,v,window=3):
 
 class InductText(nn.Module):
     def __init__(self,V,d=64,drop=.5):
-        super().__init__(); self.h1=nn.Sequential(nn.Linear(V,d,bias=False),nn.ReLU(),nn.Dropout(drop))
+        super().__init__(); self.V=int(V); self.H_1_words=None
+        self.h1=nn.Sequential(nn.Linear(V,d,bias=False),nn.ReLU(),nn.Dropout(drop))
         self.out=nn.Linear(d,2,bias=False)
+
     def train_repr_logits(self,A,conv0):
-        H=self.h1(conv0); R=A@H; return R,self.out(R)
-    def dev_repr_logits(self,Xdev,Hwords):
-        n,V=Xdev.shape; H0=torch.cat([torch.eye(V,device=Xdev.device),Xdev],dim=0)
+        # Match author cross_entropy_loss_on_document_nodes(): H_1_words is
+        # captured from the dropout-active TRAIN forward pass and then reused
+        # during DEV inference.
+        H=self.h1(conv0)
+        self.H_1_words=H[:self.V].detach()
+        R=A@H
+        return R,self.out(R)
+
+    def dev_repr_logits(self,Xdev,Hwords=None):
+        Hwords=self.H_1_words if Hwords is None else Hwords
+        assert Hwords is not None
+        Hwords=Hwords.to(Xdev.device)
+        n,V=Xdev.shape
+        H0=torch.cat([torch.eye(V,device=Xdev.device),Xdev],dim=0)
         B=torch.zeros((n,V+n),device=Xdev.device); B[:,:V]=Xdev; B[:,V:]=torch.eye(n,device=Xdev.device)
-        Hdev=self.h1(B@H0); Hall=torch.cat([Hwords,Hdev],dim=0); R=B@Hall
+        Hdev=self.h1(B@H0)
+        Hall=torch.cat([Hwords[:V],Hdev],dim=0)
+        R=B@Hall
         return R,self.out(R)
 
 def metrics(y,p):
@@ -176,20 +191,28 @@ def main(argv=None):
     for epoch in range(1,pub["num_steps"]+1):
         model.train(); opt.zero_grad(set_to_none=True); R,z=model.train_repr_logits(A,conv0); loss=loss_fn(z[250:],yy); loss.backward(); opt.step()
         if epoch==1 or epoch%a.eval_every==0 or epoch==pub["num_steps"]:
+            # Author validation calls model.eval() but reuses H_1_words saved
+            # by the immediately preceding dropout-active TRAIN pass.
+            Hwords_train=model.H_1_words.detach().clone()
             model.eval()
             with torch.no_grad():
-                H=model.h1(conv0); Hwords=H[:250]; Rd,zd=model.dev_repr_logits(Xdv,Hwords); pdv=torch.softmax(zd,1).cpu().numpy()
+                Rd,zd=model.dev_repr_logits(Xdv,Hwords_train); pdv=torch.softmax(zd,1).cpu().numpy()
             m=metrics(ydv,pdv); key=(m["macro_f1"],m["depressed_f1"],m["auroc"])
             hist.append({"epoch":epoch,"loss":float(loss.detach().cpu()),**m})
             if len(hist)%25==0 or epoch==pub["num_steps"]: pd.DataFrame(hist).to_csv(out/"history.csv",index=False)
             if epoch==1 or epoch%max(1,pub["num_steps"]//50)==0:
                 print(f"epoch={epoch:05d} loss={loss.item():.4f} dev_macroF1={m['macro_f1']:.4f} depF1={m['depressed_f1']:.4f} AUROC={m['auroc']:.4f}")
             if key>best:
-                best=key; best_epoch=epoch; torch.save({"model_state_dict":model.state_dict(),"epoch":epoch,"published_hparams":pub},ckpt)
+                best=key; best_epoch=epoch
+                torch.save({"model_state_dict":model.state_dict(),"H_1_words":Hwords_train.cpu(),
+                            "epoch":epoch,"published_hparams":pub},ckpt)
     pd.DataFrame(hist).to_csv(out/"history.csv",index=False)
     state=torch.load(ckpt,map_location=device,weights_only=False); model.load_state_dict(state["model_state_dict"]); model.eval()
+    Hwords=state["H_1_words"].to(device)
     with torch.no_grad():
-        H=model.h1(conv0); Rt=A@H; zt=model.out(Rt)[250:]; Hwords=H[:250]
+        # Deterministic TRAIN embedding for downstream fusion; DEV inference
+        # uses the exact stored training-word state from the best epoch.
+        H_eval=model.h1(conv0); Rt=A@H_eval; zt=model.out(Rt)[250:]
         Rd,zd=model.dev_repr_logits(Xdv,Hwords)
         ptr=torch.softmax(zt,1).cpu().numpy(); pdv=torch.softmax(zd,1).cpu().numpy()
     mt,md=metrics(ytr,ptr),metrics(ydv,pdv)
@@ -197,10 +220,23 @@ def main(argv=None):
     np.savez_compressed(out/"dev_text_embeddings.npz",participant_ids=dv.participant_id.to_numpy(int),labels=ydv,embedding=Rd.cpu().numpy().astype(np.float32),probability=pdv[:,1].astype(np.float32))
     with (out/"vectorizer.pkl").open("wb") as f: pickle.dump(v,f)
     torch.save({"model_state_dict":model.state_dict(),"H1_words":Hwords.cpu(),"best_epoch":best_epoch,"published_hparams":pub},out/"inference_state.pt")
-    pd.DataFrame({"term":np.array(sorted(v.vocabulary_,key=v.vocabulary_.get))}).to_csv(out/"top250_terms.csv",index=False)
+    ours=np.array(sorted(v.vocabulary_,key=v.vocabulary_.get))
+    pd.DataFrame({"term":ours}).to_csv(out/"top250_terms.csv",index=False)
+
+    # Diagnostic only: compare independently reconstructed TRAIN vocabulary
+    # with the locked published teacher vectorizer. It never changes training.
+    teacher_vt=src/"model/Participant/vtzer_inductgcn[250].pkl"
+    vocab_audit={"teacher_vectorizer_found":teacher_vt.exists()}
+    if teacher_vt.exists():
+        with teacher_vt.open("rb") as f: tv=pickle.load(f)
+        theirs=set(tv.vocabulary_.keys()); ourset=set(v.vocabulary_.keys()); inter=ourset & theirs
+        vocab_audit.update({"our_vocab":len(ourset),"teacher_vocab":len(theirs),"overlap":len(inter),
+                            "overlap_fraction":len(inter)/max(1,len(ourset)),
+                            "jaccard":len(inter)/max(1,len(ourset|theirs))})
     protocol={"mode":"hard-label text branch pretraining","architecture":"InducT-style original top250; independently trained weights","train_participants":107,"dev_participants":34,
               "participant_440_excluded":True,"teacher_checkpoint_loaded":False,"teacher_vectorizer_loaded":False,
-              "published_optuna_hparams_reused":True,"best_epoch":best_epoch,"test_opened":False}
+              "published_optuna_hparams_reused":True,"author_stateful_H1_words_behavior":True,
+              "vocabulary_overlap_audit":vocab_audit,"best_epoch":best_epoch,"test_opened":False}
     (out/"metrics.json").write_text(json.dumps({"train":mt,"dev34":md,"protocol":protocol},indent=2)+"\n")
     print("\nBEST TEXT-BRANCH DEV-34:",json.dumps(md,indent=2)); print("best_epoch:",best_epoch,"| TEST CLOSED.")
 if __name__=="__main__": main()
