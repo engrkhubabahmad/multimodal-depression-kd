@@ -39,3 +39,24 @@ The active hard-label audio branch uses the same verified ComParE16 arrays, auth
 - DEV uses all segments and mean probability
 - no teacher checkpoint or teacher logits
 - no threshold search; TEST closed
+
+
+## Frozen-branch multimodal stage
+
+After branch validation, v3 freezes the selected hard-label branch representations before comparing distillation objectives.
+
+Selected branches:
+- text: independent InducT-style top250 branch, 16,128 parameters
+- audio: compressed USSD-style Conv128 + LSTM128 hard-label segment branch, 182,529 parameters
+- the participant-bag audio experiment is retained as a negative pilot and is not used
+
+Fusion:
+- standardize each embedding dimension with TRAIN-107 mean/std only
+- audio 256 -> 96
+- text 64 -> 96
+- concatenate [audio, text, audio*text, |audio-text|]
+- 384 -> 64 -> 1
+- fusion head: 55,617 trainable parameters
+- full student including frozen branches: 254,274 parameters
+
+For the controlled KD comparison, the branch embeddings, fusion architecture, participant split, threshold, and checkpoint-selection rule remain identical. No-KD trains first with hard labels only. Standard KD and RA-KD will reuse this exact backbone after the No-KD run is frozen.
