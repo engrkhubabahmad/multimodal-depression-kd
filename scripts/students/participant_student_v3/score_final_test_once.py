@@ -65,10 +65,11 @@ def main(argv=None):
     d=pred.merge(gt,on="participant_id",how="inner",validate="one_to_one").sort_values("participant_id")
     y=d.label.to_numpy(int)
 
-    final=metrics(y,d.standard_kd_probability.to_numpy(float),d.standard_kd_prediction.to_numpy(int))
-    text=metrics(y,d.text_probability.to_numpy(float),d.text_prediction.to_numpy(int))
-    audio_mean=metrics(y,d.audio_mean_probability.to_numpy(float),d.audio_mean_prediction.to_numpy(int))
-    audio_vote=metrics(y,d.audio_mean_probability.to_numpy(float),d.audio_vote_prediction.to_numpy(int))
+    required={"student_probability","student_prediction"}
+    assert required<=set(d.columns),f"Blind prediction file must contain only selected student outputs; missing={required-set(d.columns)}"
+    forbidden={"text_probability","text_prediction","audio_mean_probability","audio_mean_prediction","audio_vote_fraction","audio_vote_prediction"}
+    assert not (forbidden & set(d.columns)),f"Unimodal TEST prediction columns are forbidden: {sorted(forbidden & set(d.columns))}"
+    final=metrics(y,d.student_probability.to_numpy(float),d.student_prediction.to_numpy(int))
 
     d.to_csv(out/"final_test_predictions_scored.csv",index=False)
     result={
@@ -78,16 +79,15 @@ def main(argv=None):
       "ground_truth_label_column":label_col,
       "blind_predictions_sha256":pred_sha,
       "dev_freeze_sha256":manifest["dev_freeze_sha256"],
-      "selected_condition":"standard_kd",
+      "selected_condition":"standard_kd_student",
       "threshold":0.5,
       "threshold_search":False,
       "fitting_on_test":False,
       "checkpoint_selection_on_test":False,
       "teacher_targets_used_on_test":False,
-      "standard_kd_test":final,
-      "frozen_text_branch_test":text,
-      "frozen_audio_branch_mean_probability_test":audio_mean,
-      "frozen_audio_branch_author_vote_test":audio_vote,
+      "student_test":final,
+      "test_metrics_scope":"selected frozen student only",
+      "unimodal_branch_test_metrics_computed":False,
       "test_opened":True,
       "no_post_test_model_changes_permitted":True
     }
@@ -95,7 +95,7 @@ def main(argv=None):
     marker.write_text(json.dumps({
       "test_opened":True,
       "blind_predictions_sha256":pred_sha,
-      "selected_condition":"standard_kd",
+      "selected_condition":"standard_kd_student",
       "final_metrics_file":"FINAL_TEST_METRICS.json",
       "no_repeat_evaluation":True
     },indent=2)+"\n")

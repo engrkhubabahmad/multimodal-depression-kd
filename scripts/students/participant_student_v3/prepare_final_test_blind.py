@@ -105,12 +105,11 @@ def main(argv=None):
     text_model.load_state_dict(tstate["model_state_dict"]); text_model.eval()
     Hwords=tstate["H1_words"].to(device)
     with torch.inference_mode():
-        Rt,zt=text_model.dev_repr_logits(X.to(device),Hwords)
-        text_prob=torch.softmax(zt,1)[:,1].cpu().numpy().astype(np.float32)
+        Rt,_=text_model.dev_repr_logits(X.to(device),Hwords)
         text_emb=Rt.cpu().numpy().astype(np.float32)
     assert text_emb.shape==(47,64)
     np.savez_compressed(out/"blind_test_text_embeddings.npz",
-                        participant_ids=ids,embedding=text_emb,probability=text_prob)
+                        participant_ids=ids,embedding=text_emb)
 
     # Prepare exact USSD-compatible TEST ComParE16 features. No TEST labels are read.
     smile=resolve_exec(a.smile_extract); config=Path(a.compare16_config)
@@ -155,16 +154,14 @@ def main(argv=None):
     ast=torch.load(ad/"best.pt",map_location=device,weights_only=False)
     audio_model.load_state_dict(ast["model_state_dict"]); audio_model.eval()
     assert audio_parameter_count(audio_model)==EXPECTED_AUDIO_PARAMS
-    audio_emb=[]; audio_prob=[]; audio_vote=[]; nseg=[]
+    audio_emb=[]
     for pid,feat in tqdm(list(zip(ids,feat_paths)),desc="FINAL TEST frozen audio branch",colour="green"):
         z=infer_audio(audio_model,feat,mean,stdv,device,a.audio_batch_size)
-        audio_emb.append(z["embedding"]); audio_prob.append(z["mean_probability"]); audio_vote.append(z["vote_fraction"]); nseg.append(z["n_segments"])
-    audio_emb=np.stack(audio_emb).astype(np.float32); audio_prob=np.asarray(audio_prob,np.float32)
-    audio_vote=np.asarray(audio_vote,np.float32); nseg=np.asarray(nseg,int)
+        audio_emb.append(z["embedding"])
+    audio_emb=np.stack(audio_emb).astype(np.float32)
     assert audio_emb.shape==(47,256)
     np.savez_compressed(out/"blind_test_audio_embeddings.npz",
-                        participant_ids=ids,embedding=audio_emb,probability=audio_prob,
-                        vote_fraction=audio_vote,n_segments=nseg)
+                        participant_ids=ids,embedding=audio_emb)
 
     # Frozen Standard-KD fusion using exactly the No-KD TRAIN standardizers.
     sc=np.load(nk/"train_only_standardizers.npz")
@@ -181,22 +178,15 @@ def main(argv=None):
 
     blind=pd.DataFrame({
       "participant_id":ids,
-      "standard_kd_probability":pf,
-      "standard_kd_prediction":(pf>=.5).astype(int),
-      "text_probability":text_prob,
-      "text_prediction":(text_prob>=.5).astype(int),
-      "audio_mean_probability":audio_prob,
-      "audio_mean_prediction":(audio_prob>=.5).astype(int),
-      "audio_vote_fraction":audio_vote,
-      "audio_vote_prediction":np.rint(audio_vote).astype(int),
-      "audio_n_segments":nseg
+      "student_probability":pf,
+      "student_prediction":(pf>=.5).astype(int)
     })
     blind.to_csv(out/"blind_test_predictions.csv",index=False)
 
     manifest={
       "status":"BLIND TEST PREDICTIONS FROZEN; labels never loaded",
       "test_participants":47,
-      "selected_condition":"standard_kd",
+      "selected_condition":"standard_kd_student",
       "selected_threshold":0.5,
       "selected_standard_kd_best_epoch":int(sm["protocol"]["best_epoch"]),
       "selected_checkpoint_sha256":sha256(std/"best.pt"),
@@ -207,6 +197,8 @@ def main(argv=None):
       "author_normalization_sha256":sha256(stats_path),
       "compare16_config_sha256":sha256(config),
       "teacher_targets_used_on_test":False,
+      "test_metrics_scope":"selected frozen student only",
+      "unimodal_branch_test_metrics_permitted":False,
       "test_labels_loaded":False,
       "fitting_on_test":False,
       "threshold_search_on_test":False
@@ -214,7 +206,7 @@ def main(argv=None):
     (out/"blind_test_manifest.json").write_text(json.dumps(manifest,indent=2)+"\n")
     print(json.dumps(manifest,indent=2))
     print("\nBLIND TEST INFERENCE: PASS")
-    print("Predictions frozen. TEST LABELS HAVE NOT BEEN LOADED.")
+    print("Selected STUDENT predictions frozen. TEST LABELS HAVE NOT BEEN LOADED.")
     print("Next and only next: run score_final_test_once.py.")
 
 if __name__=="__main__": main()
