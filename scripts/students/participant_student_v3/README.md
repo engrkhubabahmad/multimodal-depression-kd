@@ -1,0 +1,25 @@
+# Participant student v3: branch-pretrained compact student
+
+v2 diagnostics showed that both compact branches were weak before fusion:
+- TF-IDF text diagnostic: DEV-34 macro-F1 0.5522, AUROC 0.6087
+- compact audio diagnostic: DEV-34 macro-F1 0.5467, AUROC 0.4506
+
+v3 therefore changes the training mechanism rather than increasing size.
+
+## Text branch
+- Participant-only full interview documents reconstructed from DAIC-WOZ.
+- TRAIN-only TF-IDF and supervised top-250 selection.
+- Exact InducT-style word/document graph mechanism: positive PMI word-word edges, TF-IDF word-document edges, symmetric graph normalization.
+- 250 -> 64 -> 2, 16,128 trainable parameters.
+- Independently trained weights; no teacher checkpoint/vectorizer.
+- Published Idiap Optuna hyperparameters are read from the public experiment database, avoiding a new hyperparameter search on DEV-34.
+
+## Audio branch
+- Existing USSD-compatible ComParE16 arrays.
+- Author TRAIN normalization artifact, but no teacher checkpoint.
+- 130 -> 128 Conv1D + BN/ReLU/MaxPool + one-layer LSTM128 + segment head.
+- 182,529 trainable parameters.
+- Each epoch samples 16 segments per TRAIN participant, so every participant contributes equally.
+- DEV uses all segments and mean segment probability.
+
+After these two branches are independently validated, their 64-D text and 256-D audio embeddings will feed the same compact multimodal fusion head for No-KD, Standard KD and RA-KD.
