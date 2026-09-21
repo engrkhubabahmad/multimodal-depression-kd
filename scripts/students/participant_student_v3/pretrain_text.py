@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse,json,math,pickle,random,re,urllib.request
+import argparse,json,math,pickle,random,re,urllib.request,shutil,subprocess,sys
 from pathlib import Path
 from collections import defaultdict
 import numpy as np,pandas as pd,torch
@@ -38,35 +38,62 @@ def participant_doc(path):
 def published_params(src):
     import optuna
     rel=Path("output/Participant/21_induct-gcn[original-features250]/db.sqlite3")
-    db=Path(src)/rel
-    source="local Idiap source clone"
+    source_db=Path(src)/rel
+    runtime_db=Path("/content/idiap_participant_original_features250_optuna_runtime.db")
+    public_url=("https://raw.githubusercontent.com/idiap/bias_in_daic-woz/main/"
+                "output/Participant/21_induct-gcn%5Boriginal-features250%5D/db.sqlite3")
 
-    if not db.exists():
-        # Older cached clones may contain the published model but predate the
-        # committed output/ directory. Fetch the exact public experiment DB
-        # without modifying the user's pinned source checkout.
-        cache=Path("/content/idiap_participant_original_features250_optuna.db")
-        url=("https://raw.githubusercontent.com/idiap/bias_in_daic-woz/main/"
-             "output/Participant/21_induct-gcn%5Boriginal-features250%5D/db.sqlite3")
-        if not cache.exists() or cache.stat().st_size < 100000:
+    # Always work on a disposable /content copy. Never mutate the user's
+    # pinned Idiap checkout in Drive.
+    if source_db.exists():
+        if (not runtime_db.exists()
+            or runtime_db.stat().st_size != source_db.stat().st_size
+            or runtime_db.stat().st_mtime < source_db.stat().st_mtime):
+            shutil.copy2(source_db,runtime_db)
+        source=str(source_db)
+    else:
+        if not runtime_db.exists() or runtime_db.stat().st_size < 100000:
             print("Published Idiap Optuna DB missing from cached clone; fetching public experiment DB...")
-            urllib.request.urlretrieve(url,cache)
-        if not cache.exists() or cache.stat().st_size < 100000:
-            raise FileNotFoundError(f"Could not obtain published Idiap Optuna database: {cache}")
-        db=cache; source=url
+            urllib.request.urlretrieve(public_url,runtime_db)
+        source=public_url
 
-    storage=f"sqlite:///{db}"
-    summaries=optuna.study.get_all_study_summaries(storage)
-    assert len(summaries)>=1,"No study in published Idiap database"
-    studies=[optuna.load_study(study_name=x.study_name,storage=storage) for x in summaries]
+    if not runtime_db.exists() or runtime_db.stat().st_size < 100000:
+        raise FileNotFoundError(f"Could not obtain published Idiap Optuna database: {runtime_db}")
+
+    storage=f"sqlite:///{runtime_db}"
+
+    def summaries():
+        return optuna.study.get_all_study_summaries(storage)
+
+    try:
+        ss=summaries()
+    except RuntimeError as e:
+        if "table schema" not in str(e).lower() and "not compatible" not in str(e).lower():
+            raise
+        print("Upgrading disposable published Optuna DB schema for current runtime...")
+        subprocess.run(
+            [sys.executable,"-m","optuna","storage","upgrade","--storage",storage],
+            check=True
+        )
+        ss=summaries()
+
+    assert len(ss)>=1,"No study in published Idiap database"
+    studies=[optuna.load_study(study_name=x.study_name,storage=storage) for x in ss]
     completed=[q for q in studies if len(q.trials)>0]
     assert completed,"Published Idiap database has no trials"
     study=max(completed,key=lambda q: float(q.best_value))
     p=study.best_trial.params
     assert "learning_rate" in p and "num_steps" in p,p
-    return {"study_name":study.study_name,"best_value":float(study.best_value),
-            "learning_rate":float(p["learning_rate"]),"num_steps":int(p["num_steps"]),
-            "database_path":str(db),"database_source":source}
+    return {
+        "study_name":study.study_name,
+        "best_value":float(study.best_value),
+        "learning_rate":float(p["learning_rate"]),
+        "num_steps":int(p["num_steps"]),
+        "database_path":str(runtime_db),
+        "database_source":source,
+        "runtime_optuna_version":optuna.__version__,
+        "source_database_never_modified":True,
+    }
 
 def select_vectorizer(docs,y,k=250):
     base=TfidfVectorizer(stop_words="english"); X=base.fit_transform(docs)
