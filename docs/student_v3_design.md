@@ -79,3 +79,21 @@ Fusion:
 - full student including frozen branches: 254,274 parameters
 
 For the controlled KD comparison, the branch embeddings, fusion architecture, participant split, threshold, and checkpoint-selection rule remain identical. No-KD trains first with hard labels only. Standard KD and RA-KD will reuse this exact backbone after the No-KD run is frozen.
+
+
+## Standard KD (fixed controlled condition)
+
+Standard KD reuses the frozen branch embeddings, TRAIN-only embedding standardizers, fusion architecture, optimizer hyperparameters, fixed threshold 0.5, and DEV-34 checkpoint rule from the No-KD condition.
+
+Teacher-scale correction is fixed from TRAIN-107 only because raw audio/text teacher logits have very different scales:
+- s_m = median_TRAIN(|z_m|)
+- u_m = z_m / s_m
+- q_m = sigmoid(u_m / T), T=2
+- Standard KD target q = (q_audio + q_text)/2
+
+Loss:
+- hard = class-weighted participant BCE on TRAIN labels
+- KD = T^2 * BCEWithLogits(student_logit/T, q)
+- total = 0.5 * hard + 0.5 * KD
+
+No DEV teacher targets enter training or teacher scaling. TEST remains closed. RA-KD must use these same normalized q_m targets so its only methodological change is reliability weighting.
