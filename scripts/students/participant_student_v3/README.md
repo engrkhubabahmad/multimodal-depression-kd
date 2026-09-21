@@ -25,3 +25,17 @@ v3 therefore changes the training mechanism rather than increasing size.
 - DEV uses all segments; author-style majority vote is the primary checkpoint metric, with soft mean probability retained for AUROC/fusion.
 
 After these two branches are independently validated, their 64-D text and 256-D audio embeddings will feed the same compact multimodal fusion head for No-KD, Standard KD and RA-KD.
+
+
+## Audio participant-bag branch (active after segment pilot)
+
+The author-recipe compressed segment-level pilot memorized TRAIN segments and peaked at DEV-34 majority-vote macro-F1 0.6222 (AUROC 0.5257), so it is retained as a negative pilot rather than frozen.
+
+The active hard-label audio branch uses the same verified ComParE16 arrays, author TRAIN normalization, 384-frame segmentation and 182,529-parameter compressed encoder, but supervision is applied at the participant level:
+- sample 16 TRAIN segments per participant per epoch
+- encode segments with the compact USSD-style encoder
+- participant probability = mean sigmoid(segment logits)
+- BCE is applied once per participant, with TRAIN-only pos_weight=77/30
+- DEV uses all segments and mean probability
+- no teacher checkpoint or teacher logits
+- no threshold search; TEST closed
