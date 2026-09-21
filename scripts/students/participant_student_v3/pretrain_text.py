@@ -226,7 +226,25 @@ def main(argv=None):
     # Diagnostic only: compare independently reconstructed TRAIN vocabulary
     # with the locked published teacher vectorizer. It never changes training.
     teacher_vt=src/"model/Participant/vtzer_inductgcn[250].pkl"
-    vocab_audit={"teacher_vectorizer_found":teacher_vt.exists()}
+    teacher_vt_source="local cached Idiap clone"
+    if not teacher_vt.exists():
+        hits=list(src.rglob("vtzer_inductgcn[250].pkl"))
+        if len(hits)==1:
+            teacher_vt=hits[0]; teacher_vt_source="recursive local match"
+        else:
+            cache_vt=Path("/content/idiap_vtzer_inductgcn_250.pkl")
+            public_vt=("https://raw.githubusercontent.com/idiap/bias_in_daic-woz/main/"
+                       "model/Participant/vtzer_inductgcn%5B250%5D.pkl")
+            if not cache_vt.exists() or cache_vt.stat().st_size < 5000:
+                try:
+                    urllib.request.urlretrieve(public_vt,cache_vt)
+                except Exception as e:
+                    print("Vocabulary audit warning: could not fetch published vectorizer:",repr(e))
+            if cache_vt.exists() and cache_vt.stat().st_size >= 5000:
+                teacher_vt=cache_vt; teacher_vt_source=public_vt
+
+    vocab_audit={"teacher_vectorizer_found":teacher_vt.exists(),
+                 "teacher_vectorizer_source":teacher_vt_source if teacher_vt.exists() else None}
     if teacher_vt.exists():
         with teacher_vt.open("rb") as f: tv=pickle.load(f)
         theirs=set(tv.vocabulary_.keys()); ourset=set(v.vocabulary_.keys()); inter=ourset & theirs
