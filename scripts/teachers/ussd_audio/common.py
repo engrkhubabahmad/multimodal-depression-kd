@@ -4,6 +4,7 @@ import hashlib
 import json
 import pickle
 import random
+import urllib.request
 import wave
 from pathlib import Path
 
@@ -13,7 +14,7 @@ import torch
 import torch.nn as nn
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_auc_score
 
-from . import AUTHOR_TRAIN_CROP_FRAMES, CHECKPOINT_NAME, EXCLUDED_DEV_IDS, FREQ_BINS, RUN4_REL, SEGMENT_FRAMES
+from . import AUTHOR_COMMIT, AUTHOR_TRAIN_CROP_FRAMES, CHECKPOINT_NAME, EXCLUDED_DEV_IDS, FREQ_BINS, RUN4_REL, SEGMENT_FRAMES
 
 INTERRUPT = {373: [395, 428], 444: [286, 387]}
 MISALIGNED = {318: 34.319917, 321: 3.8379167, 341: 6.1892, 362: 16.8582}
@@ -171,10 +172,34 @@ def crop_author_train(x: np.ndarray, rng: random.Random, frames: int = AUTHOR_TR
     return x[:, start:start + frames]
 
 
+AUTHOR_RUN4_CHECKPOINT_SHA256 = "497ba1396f2e424dcbd5bc1dcf1f6636649d4681b30903ff03f6f8cbc4869e56"
+AUTHOR_RUN4_NORMALIZATION_SHA256 = "44d0516929fe893c2020fbcb0b7d1e521ab94758286899e0151e27b4a2c7790d"
+
+def _resolve_pinned_author_artifact(author_root: Path, name: str, expected_sha256: str) -> Path:
+    path = author_root / RUN4_REL / name
+    if path.exists():
+        got = sha256(path)
+        if got != expected_sha256:
+            raise RuntimeError(f"Unexpected SHA-256 for pinned author artifact {path}: {got}")
+        return path
+
+    cache = Path("/content") / f"ussd_run4_{name}"
+    if not cache.exists() or sha256(cache) != expected_sha256:
+        cache.unlink(missing_ok=True)
+        rel = f"{RUN4_REL}/{name}"
+        url = f"https://raw.githubusercontent.com/vijaysumaravi/USSD-depression/{AUTHOR_COMMIT}/{rel}"
+        print(f"Pinned USSD run-4 artifact missing from local clone; fetching {name} from author commit {AUTHOR_COMMIT[:8]}...")
+        urllib.request.urlretrieve(url, cache)
+
+    got = sha256(cache)
+    if got != expected_sha256:
+        cache.unlink(missing_ok=True)
+        raise RuntimeError(f"SHA-256 mismatch for downloaded pinned USSD artifact {name}: {got}")
+    return cache
+
+
 def load_author_stats(author_root: Path) -> tuple[np.ndarray, np.ndarray, Path]:
-    path = author_root / RUN4_REL / "data_saver.pickle"
-    if not path.exists():
-        raise FileNotFoundError(f"Missing author normalization artifact: {path}")
+    path = _resolve_pinned_author_artifact(author_root, "data_saver.pickle", AUTHOR_RUN4_NORMALIZATION_SHA256)
     with path.open("rb") as f:
         saved = pickle.load(f)
     if "mean" not in saved or "std" not in saved:
@@ -218,9 +243,7 @@ class CustomComparE16(nn.Module):
 
 
 def load_author_model(author_root: Path, device: torch.device) -> tuple[CustomComparE16, dict, Path]:
-    ckpt_path = author_root / RUN4_REL / CHECKPOINT_NAME
-    if not ckpt_path.exists():
-        raise FileNotFoundError(f"Missing released run #4 checkpoint: {ckpt_path}")
+    ckpt_path = _resolve_pinned_author_artifact(author_root, CHECKPOINT_NAME, AUTHOR_RUN4_CHECKPOINT_SHA256)
     state = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     sd = state.get("state_dict", state.get("model_state_dict", state))
     if not isinstance(sd, dict):

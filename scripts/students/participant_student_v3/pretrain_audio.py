@@ -9,6 +9,7 @@ from scripts.teachers.ussd_audio import AUTHOR_COMMIT,AUTHOR_TRAIN_CROP_FRAMES,S
 from scripts.teachers.ussd_audio.common import load_author_stats,load_feature_manifest,sha256
 
 RUN4_SEED=1300
+AUTHOR_BALANCED_SEGMENTS_PER_CLASS=468
 FRAMES=SEGMENT_FRAMES
 
 def resolve_path(row,split,local):
@@ -39,7 +40,10 @@ class AuthorCropSegments(Dataset):
             for s in range(n): self.items.append((i,s,int(r.label)))
         neg=[j for j,x in enumerate(self.items) if x[2]==0]
         pos=[j for j,x in enumerate(self.items) if x[2]==1]
-        n=min(len(neg),len(pos)); br=random.Random(self.seed)
+        n=AUTHOR_BALANCED_SEGMENTS_PER_CLASS
+        if len(neg)<n or len(pos)<n:
+            raise AssertionError(f"Need at least {n} segments/class; got neg={len(neg)} pos={len(pos)}")
+        br=random.Random(self.seed)
         self.keep=br.sample(neg,n)+br.sample(pos,n)
         self.n_per_class=n
     def __len__(self): return len(self.keep)
@@ -179,7 +183,7 @@ def main(argv=None):
       "author_commit":AUTHOR_COMMIT,"author_normalization_reused":True,"normalization_sha256":sha256(stat_path),
       "teacher_checkpoint_loaded":False,"crop_frames":AUTHOR_TRAIN_CROP_FRAMES,"crop_seed":a.seed,
       "segmentation_frames":FRAMES,"padding_then_normalization":True,
-      "class_balance":"fixed equal-size segment subset from deterministic TRAIN crop; no class weights",
+      "class_balance":"author run-4 SUB_SAMPLE_ND_CLASS: fixed 468 segments/class from deterministic TRAIN crop; no class weights",
       "optimizer":"Adam","initial_lr":a.lr,"weight_decay":0.0,"batch_size":a.batch_size,
       "lr_schedule":f"x{a.lr_decay} every {a.lr_factor_epochs} epochs",
       "checkpoint_selection":"DEV-34 participant majority-vote macro-F1, then depressed-F1, then soft-mean AUROC",

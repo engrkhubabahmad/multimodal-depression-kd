@@ -19,7 +19,9 @@ v3 therefore changes the training mechanism rather than increasing size.
 - Author TRAIN normalization artifact, but no teacher checkpoint.
 - 130 -> 128 Conv1D + BN/ReLU/MaxPool + one-layer LSTM128 + segment head.
 - 182,529 trainable parameters.
-- Each epoch samples 16 segments per TRAIN participant, so every participant contributes equally.
-- DEV uses all segments and mean segment probability.
+- Fixed 6,662-frame author-style TRAIN crop with run-4 seed 1300, segmented into 384-frame windows.
+- Author run-4 class balancing is reproduced as 468 TRAIN segments per class; no class weights.
+- Adam, batch 20, initial LR 0.003, weight decay 0, LR ×0.9 every 2 epochs.
+- DEV uses all segments; author-style majority vote is the primary checkpoint metric, with soft mean probability retained for AUROC/fusion.
 
 After these two branches are independently validated, their 64-D text and 256-D audio embeddings will feed the same compact multimodal fusion head for No-KD, Standard KD and RA-KD.
