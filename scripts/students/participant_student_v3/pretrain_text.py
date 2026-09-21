@@ -71,8 +71,14 @@ def published_params(src):
         if "table schema" not in str(e).lower() and "not compatible" not in str(e).lower():
             raise
         print("Upgrading disposable published Optuna DB schema for current runtime...")
+        optuna_cli=shutil.which("optuna")
+        if not optuna_cli:
+            raise RuntimeError(
+                "Optuna package is importable but the 'optuna' CLI executable is not on PATH. "
+                "Run: pip install -U 'optuna>=4,<5'"
+            )
         subprocess.run(
-            [sys.executable,"-m","optuna","storage","upgrade","--storage",storage],
+            [optuna_cli,"storage","upgrade","--storage",storage],
             check=True
         )
         ss=summaries()
