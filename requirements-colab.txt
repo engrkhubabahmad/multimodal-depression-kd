@@ -7,3 +7,4 @@ scikit-learn
 pandas
 tqdm
 librosa>=0.10
+optuna>=3.6,<5
