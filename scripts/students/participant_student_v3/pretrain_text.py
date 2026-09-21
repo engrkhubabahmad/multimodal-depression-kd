@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse,json,math,pickle,random,re
+import argparse,json,math,pickle,random,re,urllib.request
 from pathlib import Path
 from collections import defaultdict
 import numpy as np,pandas as pd,torch
@@ -37,18 +37,36 @@ def participant_doc(path):
 
 def published_params(src):
     import optuna
-    db=Path(src)/"output/Participant/21_induct-gcn[original-features250]/db.sqlite3"
-    assert db.exists(),db
+    rel=Path("output/Participant/21_induct-gcn[original-features250]/db.sqlite3")
+    db=Path(src)/rel
+    source="local Idiap source clone"
+
+    if not db.exists():
+        # Older cached clones may contain the published model but predate the
+        # committed output/ directory. Fetch the exact public experiment DB
+        # without modifying the user's pinned source checkout.
+        cache=Path("/content/idiap_participant_original_features250_optuna.db")
+        url=("https://raw.githubusercontent.com/idiap/bias_in_daic-woz/main/"
+             "output/Participant/21_induct-gcn%5Boriginal-features250%5D/db.sqlite3")
+        if not cache.exists() or cache.stat().st_size < 100000:
+            print("Published Idiap Optuna DB missing from cached clone; fetching public experiment DB...")
+            urllib.request.urlretrieve(url,cache)
+        if not cache.exists() or cache.stat().st_size < 100000:
+            raise FileNotFoundError(f"Could not obtain published Idiap Optuna database: {cache}")
+        db=cache; source=url
+
     storage=f"sqlite:///{db}"
     summaries=optuna.study.get_all_study_summaries(storage)
     assert len(summaries)>=1,"No study in published Idiap database"
-    # This database belongs to one experiment; choose the study with the best completed value.
-    studies=[optuna.load_study(study_name=s.study_name,storage=storage) for s in summaries]
-    study=max(studies,key=lambda q: float(q.best_value))
+    studies=[optuna.load_study(study_name=x.study_name,storage=storage) for x in summaries]
+    completed=[q for q in studies if len(q.trials)>0]
+    assert completed,"Published Idiap database has no trials"
+    study=max(completed,key=lambda q: float(q.best_value))
     p=study.best_trial.params
     assert "learning_rate" in p and "num_steps" in p,p
     return {"study_name":study.study_name,"best_value":float(study.best_value),
-            "learning_rate":float(p["learning_rate"]),"num_steps":int(p["num_steps"])}
+            "learning_rate":float(p["learning_rate"]),"num_steps":int(p["num_steps"]),
+            "database_path":str(db),"database_source":source}
 
 def select_vectorizer(docs,y,k=250):
     base=TfidfVectorizer(stop_words="english"); X=base.fit_transform(docs)
