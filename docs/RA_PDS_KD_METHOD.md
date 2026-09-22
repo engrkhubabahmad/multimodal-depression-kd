@@ -1,94 +1,13 @@
-# RA-PDS-KD Methodology
+# Archived: earlier RA-PDS-KD segment-level proposal
 
-**Reliability-Aware Participant-Disjoint Segment-Level Knowledge Distillation**
+**This document is superseded and is not the methodology behind the current v3 results.** It described an earlier proposed pipeline using aligned Wav2Vec2/MiniLM segments, segment-level teachers, and clean/missing/noisy robustness conditions. That pipeline is not the frozen student-v3 experiment.
 
-## Final protocol
+For the current implementation, results, and test protocol, use:
 
-```text
-DAIC-WOZ
-  -> PARTICIPANT SPLIT FIRST
-       TRAIN 107
-       DEV   34 usable
-       TEST  47 CLOSED
-  -> segment TRAIN/DEV independently
-  -> aligned audio/text segment IDs
-  -> segment-level audio teacher + text teacher
-  -> DEV-only teacher evaluation
-  -> TRAIN/DEV aligned teacher targets
-  -> three student experiments
-       1. No KD
-       2. Standard KD
-       3. Reliability-Aware Robust KD
-  -> DEV evaluation for all three:
-       clean
-       audio missing
-       text missing
-       audio noisy
-       text noisy
-  -> checkpoint/threshold selection from CLEAN DEV only
-  -> freeze final student
-  -> open TEST
-  -> same frozen segmentation + student feature pipeline
-  -> CLEAN TEST only
-  -> final segment-level metrics
-```
+- [Current repository status and DEV results](../README.md)
+- [Student v3 design](student_v3_design.md)
+- [Student v3 DEV freeze](student_v3_dev_freeze.md)
+- [Student v3 final TEST procedure](student_v3_final_test.md)
+- Code: scripts/students/participant_student_v3/ and scripts/teachers/
 
-No participant-level prediction aggregation is used.
-
-## Teachers and cache
-
-The active teacher script is `scripts/teachers/train_segment_teachers.py`. It creates aligned segment-level Wav2Vec2/MiniLM embeddings under:
-
-`experiments/features/rapdskd_segments_<hash>/`
-
-The obsolete participant-level `teacher_v2_*` cache and its frozen/full teacher runners are not part of RA-PDS-KD.
-
-## Student variants
-
-### Student 1: No KD
-Hard-label BCE only; clean TRAIN input.
-
-### Student 2: Standard KD
-Hard labels + equal-weight audio/text soft targets; clean TRAIN input.
-
-### Student 3: Reliability-Aware Robust KD
-Hard labels + reliability-weighted audio/text soft targets. TRAIN conditions:
-- clean
-- audio missing
-- text missing
-- audio noisy
-- text noisy
-
-Reliability is condition-aware:
-
-`r_audio = audio_quality × audio_teacher_confidence`
-
-`r_text = text_quality × text_teacher_confidence`
-
-Missing quality = 0, clean quality = 1, noisy quality is reduced according to corruption severity.
-
-## DEV policy
-
-All three students are evaluated on DEV under the same five conditions. Missing/noisy results are DEV robustness analyses only.
-
-Checkpoint and decision-threshold selection use **clean DEV only**. The clean-selected threshold is reused for all DEV robustness conditions.
-
-## TEST policy
-
-TEST is inaccessible during teacher training/selection, KD construction, student training, robustness analysis, checkpoint selection, and threshold selection.
-
-After the final student is frozen, TEST uses:
-- the same segmentation algorithm
-- the same TRAIN-built vocabulary
-- the same TRAIN-fitted audio normalization
-- the same frozen model
-- the same fixed DEV threshold
-- **clean input only**
-
-No teacher is queried on TEST. No missing/noisy TEST experiments are run. No threshold search or refitting is allowed on TEST.
-
-## Active notebook
-
-Use only:
-
-`notebooks/RA_PDS_KD_pipeline.ipynb`
+The historical proposal is retained here for context only. Do not cite its segment-level setup or its old active-notebook path as the current method. The v3 controlled comparison found that Reliability-Aware KD did not outperform Standard KD on DEV-34; see the freeze record and README for the actual metrics.
