@@ -1,34 +1,35 @@
 # v3 one-time final TEST-47 evaluation
 
-Run only after `freeze_dev_selection.py` reports `DEV FREEZE: PASS`.
+The final TEST evaluates **only the frozen selected Standard-KD student**.
 
-The final TEST evaluates **only the frozen selected Standard-KD student**. The frozen text and audio branches are internal feature encoders required by the student architecture; they do not receive TEST metrics.
+The text and audio branches are internal encoders required to construct the student's frozen input representation. They are not TEST evaluation targets and do not receive TEST metrics.
 
-## Stage 1: blind student inference
+## Stage 1: blind inference
 
-`prepare_final_test_blind.py` reads only `test_split_Depression_AVEC2017.csv` for the 47 participant identifiers. It does not load depression labels.
+Blind inference may have been produced by either the original script, which also saved diagnostic unimodal probabilities, or the revised student-only script. In either case TEST labels remain unopened.
 
-It:
-- reconstructs TEST Participant-only documents
-- applies the frozen v3 text encoder to obtain the student's 64-D text input
-- extracts/reuses exact patient-only ComParE16 TEST features
-- applies the frozen compact audio encoder to obtain the student's 256-D audio input
-- applies the saved TRAIN-only embedding standardizers
-- loads the frozen Standard-KD fusion checkpoint
-- writes only the selected student's fixed-threshold probability and prediction
-- hashes the frozen artifacts and records that TEST labels were not loaded
+## Stage 1b: freeze student-only predictions
 
-The unimodal branch probabilities are not saved for TEST evaluation. No teacher targets are computed on TEST.
+Before scoring, run `freeze_student_only_test_predictions.py`.
+
+This utility:
+- reads the already-frozen blind TEST prediction CSV
+- copies only the selected Standard-KD student's probability and fixed-threshold prediction
+- writes `blind_student_only_predictions.csv`
+- records SHA-256 hashes of the source and sanitized files
+- never reads a TEST label file
+- preserves the original blind file unchanged
+
+This avoids repeating expensive ComParE16 extraction when a legacy blind inference file exists.
 
 ## Stage 2: one-time student scoring
 
-`score_final_test_once.py` verifies the blind prediction hash and DEV freeze, then opens `full_test_split.csv` and accepts `PHQ_Binary` or `PHQ8_Binary` as binary ground truth.
+`score_final_test_once.py` refuses to score the legacy diagnostic file. It accepts only:
+- `blind_student_only_predictions.csv`
+- `blind_student_only_manifest.json`
 
-It computes metrics only for:
-- frozen selected Standard-KD student
+Only after verifying those frozen hashes and the DEV freeze does it open `full_test_split.csv`.
 
-The threshold remains 0.5. There is no TEST calibration, checkpoint selection, architecture change, hyperparameter search, teacher evaluation, or unimodal branch evaluation.
+It computes metrics only for the selected frozen Standard-KD student at threshold 0.5. It does not compute teacher, text-branch, or audio-branch TEST metrics.
 
-After scoring it writes `FINAL_TEST_SCORED.json` and refuses repeat scoring.
-
-No post-TEST model changes are permitted.
+After scoring, no model, threshold, architecture, reliability rule, checkpoint, or hyperparameter changes are permitted.
