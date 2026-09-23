@@ -96,6 +96,7 @@ def main(argv=None):
         "manifest_sha256": digest(a.output / "manifest.csv"),
         "class_counts": {name: group.label.value_counts().sort_index().to_dict()
                          for name, group in manifest.groupby("split")},
+        "full_test_label_provenance": "Local full_test_split.csv; roster and PHQ threshold verified, external origin not independently verified",
         "warning": "The original 47-person TEST roster is redistributed. This is a new internal protocol, not an official AVEC TEST result."}, indent=2) + "\n")
     print("Created seed-42 132/28/28 manifest:", a.output)
 

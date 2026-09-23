@@ -2,6 +2,8 @@
 
 This is a **new internal DAIC-WOZ protocol**. The labeled `full_test_split.csv` is verified against the official 47-person TEST roster, then TRAIN-107 + usable DEV-34 + labeled TEST-47 are redistributed into participant-disjoint **TRAIN-132 / VAL-28 / student TEST-28**. Participant 440 is excluded. Since the official TEST roster contributes to every group, do **not** compare the resulting test score to papers using the official AVEC test partition.
 
+The local `full_test_split.csv` IDs and PHQ-10 binary threshold are verified; its external provenance has not been independently established. Record where those labels came from before using this new protocol in a manuscript.
+
 The previous `participant_v4` linear proxy outputs and the original canonical teacher checkpoints cannot be reused on this split. The teacher training here starts from random weights using the author InducT-GCN and USSD ComParE16+LSTM architectures. The compact student text and audio branches are independently initialized. There is **no OOF**. TRAIN teacher logits and probabilities are generated in sample and checked against participant IDs and labels before KD. All learned text vocabulary, audio normalization and fusion scalers use only TRAIN-132. The student TEST-28 is scored only by the separate final scorer after one mode is fixed on VAL-28.
 
 Run these modules from a clean Git worktree in your **existing Colab session**. The GitHub PR commit is pinned in the PR; your existing `GITHUB_TOKEN` Colab Secret can authenticate the `git fetch` command as before. Keep code outside Drive and artifacts under `/content/drive/MyDrive/DAIC_WOZ/experiments/students/full188_seed42/`.
