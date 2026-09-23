@@ -64,6 +64,7 @@ def main(argv=None):
     y = tr.label.to_numpy(int); vy = va.label.to_numpy(int)
     signature = {"seed": 42, "epochs": args.epochs, "eval_every": args.eval_every,
                  "lr": args.lr, "patience_evals": args.patience_evals,
+                 "use_pagerank": False,
                  "split_sha256": digest(args.split_dir / "manifest.csv"),
                  "author_code_sha256": digest(args.idiap_source / "main.py"),
                  "source_transcripts_sha256": {str(p): digest(p) for p in pathmap.values()}}
@@ -77,6 +78,11 @@ def main(argv=None):
     if torch.cuda.is_available(): torch.cuda.manual_seed_all(args.seed)
     vectorizer = select_vectorizer(train_docs, y, 250)
     author = load_author(args.idiap_source / "main.py")
+    # The author assigns this global only inside its CLI entry point. Importing
+    # the class directly leaves build_graph() without a value for it.
+    author.USE_PAGERANK = False
+    if not all(hasattr(author, flag) for flag in ("USE_WEIGHTED_PMI", "USE_P_TOK2TOK_WEIGHT", "ACTIVATION_FUNC")):
+        raise RuntimeError("The Idiap author source is missing required graph settings")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     author.DEVICE = device
     model = author.InducTGCN(64, np.array(["negative", "positive"]), .5, vectorizer)
@@ -126,6 +132,7 @@ def main(argv=None):
                             embedding=embedding, probability=p)
     with (args.output / "vectorizer.pkl").open("wb") as f: pickle.dump(vectorizer, f)
     (args.output / "audit.json").write_text(json.dumps({"signature": signature, "architecture": "fresh Idiap InducT-GCN",
+       "graph_settings": {"use_pagerank": False, "window_size": 3, "vocabulary_size": 250},
        "train_participants": 132, "val_participants": 28, "student_test_opened": False,
        "oof": False, "best_epoch": state["best_epoch"],
        "train": metric(y, train_prob), "val": metric(vy, val_prob)}, indent=2) + "\n")
