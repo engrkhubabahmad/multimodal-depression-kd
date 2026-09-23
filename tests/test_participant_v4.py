@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import expit
 from sklearn.feature_extraction.text import TfidfVectorizer
-from scripts.students.participant_student_v4 import export_text, compact_fusion, split42_baseline
+from scripts.students.participant_student_v4 import export_text, compact_fusion, split42_baseline, split42_ra, score_split42_student
 from scripts.students.participant_student_v4.common import (
     cached_or_create, complete, load_embeddings, check_splits)
 
@@ -136,6 +136,27 @@ class Improvements(unittest.TestCase):
                              {'train': 99, 'dev': 21, 'holdout': 21})
             self.assertEqual(len(pd.read_csv(out / 'metrics.csv')), 6)
             self.assertFalse(list(out.glob('*holdout*predictions*')))
+            student = root / 'student'
+            split42_ra.run(['--daic-root', str(root), '--features', str(feat),
+                            '--split-baseline', str(out), '--output', str(student)])
+            targets = pd.read_csv(student / 'train_teacher_logits_probabilities.csv')
+            self.assertEqual(len(targets), 99)
+            for name in ('audio', 'text'):
+                np.testing.assert_allclose(expit(targets[f'{name}_logit']),
+                                           targets[f'{name}_probability'], atol=1e-7)
+            self.assertEqual(len(pd.read_csv(student / 'metrics.csv')), 6)
+            self.assertEqual(len(pd.read_csv(student / 'dev_missing_noise.csv')), 369)
+            self.assertFalse(list(student.glob('*holdout*predictions*')))
+            final = root / 'final_student_test'
+            testargs = ['--daic-root', str(root), '--features', str(feat),
+                        '--split-baseline', str(out), '--student-run', str(student),
+                        '--student-mode', 'ra_kd', '--output', str(final)]
+            score_split42_student.run(testargs); score_split42_student.run(testargs)
+            self.assertEqual(len(pd.read_csv(final / 'student_test_predictions.csv')), 21)
+            self.assertFalse(list(final.glob('*teacher*predictions*')))
+            with self.assertRaisesRegex(ValueError, 'already evaluated'):
+                score_split42_student.run(testargs[:testargs.index('--student-mode')]
+                                           + ['--student-mode', 'standard_kd', '--output', str(root / 'other_test')])
             with self.assertRaises(ValueError):
                 split42_baseline.run(args[:-1] + ['43'])
 

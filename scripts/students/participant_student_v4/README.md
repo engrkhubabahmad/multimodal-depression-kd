@@ -83,4 +83,37 @@ subprocess.run([sys.executable, '-m', 'scripts.students.participant_student_v4.s
 display(__import__('pandas').read_csv(V4 / 'split70_15_15_seed42/metrics.csv'))
 ```
 
-The command reads one participant audio file at a time and summarizes 130 features over frames; it does not retain the full audio cache in RAM. To evaluate the actual RA-KD method under this new split, its text branch, audio branch, teachers and fusion must be retrained with the exact new manifest first. Do not compare the previous canonical DEV-34 score directly with this new DEV-21 score as if only the random seed changed.
+The command reads one participant audio file at a time and summarizes 130 features over frames; it does not retain the full audio cache in RAM. Do not compare the previous canonical DEV-34 score directly with this new DEV-21 score as if only the random seed changed.
+
+### TRAIN teacher targets, RA-KD, missing inputs and noise
+
+The seed-42 baseline's **fresh text and audio linear heads** serve as experimental proxy teachers. `split42_ra` exports their **99 TRAIN-only logits and probabilities** to `train_teacher_logits_probabilities.csv`, verifies participant IDs through the saved manifest, and trains no-KD, standard KD and RA-KD student fusion heads. RA reliability weights use median-scaled absolute teacher logits, as in the v3 confidence rule. All students use seed 42, temperature 2, KD weight 0.5, L2 1 and a 0.5 threshold. There is no OOF. These are **not the original published text/audio teachers**; those architectures need fresh training on TRAIN-99 before a publication-grade comparison.
+
+Validation corruption runs replace missing audio, missing text, or both with the TRAIN feature mean. Gaussian noise with standard deviation 0.5 or 1 in TRAIN-standardized units is applied to audio, text, or both, with 20 deterministic repetitions per level. `dev_missing_noise.csv` holds the per-repetition results; these corruptions are **evaluation only** and the held-out student test remains unopened.
+
+```python
+STUDENT = V4 / 'split70_15_15_seed42_student'
+subprocess.run([sys.executable, '-m', 'scripts.students.participant_student_v4.split42_ra',
+                '--daic-root', str(DAIC), '--features', str(FEATURES),
+                '--split-baseline', str(V4 / 'split70_15_15_seed42'),
+                '--output', str(STUDENT)], cwd=CODE, check=True)
+display(__import__('pandas').read_csv(STUDENT / 'metrics.csv'))
+display(__import__('pandas').read_csv(STUDENT / 'dev_missing_noise.csv')
+        .groupby(['mode', 'scenario', 'noise_sd'])[['macro_f1', 'depressed_f1', 'auroc']]
+        .agg(['mean', 'std']).round(3))
+```
+
+**After choosing exactly one student mode from validation**, run the reserved 21-person student test once. The scorer reads only that student's head, the TRAIN-fitted vectorizer, raw participant inputs, and the internal test labels. It never runs either teacher on these 21 participants. A selection record inside the student run prevents rerunning with a different mode or output path. The official DAIC-WOZ blind TEST is separate and remains unopened.
+
+```python
+CHOSEN_MODE = 'ra_kd'  # Set once after reviewing validation; also supports no_kd or standard_kd
+subprocess.run([sys.executable, '-m', 'scripts.students.participant_student_v4.score_split42_student',
+                '--daic-root', str(DAIC), '--features', str(FEATURES),
+                '--split-baseline', str(V4 / 'split70_15_15_seed42'),
+                '--student-run', str(STUDENT), '--student-mode', CHOSEN_MODE,
+                '--output', str(V4 / 'split70_15_15_seed42_student_test')],
+               cwd=CODE, check=True)
+print((V4 / 'split70_15_15_seed42_student_test/student_test_metrics.json').read_text())
+```
+
+For the original teacher architectures and v3 neural RA-KD to use this student split, their training and inference must be redone using TRAIN-99 and validated on DEV-21. Their canonical checkpoints and saved 107-row targets are incompatible with the new student test protocol.
