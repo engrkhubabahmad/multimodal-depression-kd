@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.metrics import f1_score, roc_auc_score, confusion_matrix
+from sklearn.metrics import f1_score, roc_auc_score, confusion_matrix, classification_report, balanced_accuracy_score, accuracy_score
 from scripts.teachers.idiap_text.export_targets import load_author
 from scripts.students.participant_student_v3.pretrain_text import select_vectorizer, transcript_map, participant_doc
 from .features import verified_split
@@ -30,10 +30,14 @@ def inductive(model, vectorizer, docs, word_state):
 
 def metric(y, p):
     pred = (p >= .5).astype(int)
-    return {"macro_f1": float(f1_score(y, pred, average="macro", zero_division=0)),
+    return {"accuracy": float(accuracy_score(y, pred)),
+            "balanced_accuracy": float(balanced_accuracy_score(y, pred)),
+            "macro_f1": float(f1_score(y, pred, average="macro", zero_division=0)),
             "depressed_f1": float(f1_score(y, pred, zero_division=0)),
             "auroc": float(roc_auc_score(y, p)),
-            "confusion_matrix": confusion_matrix(y, pred, labels=[0, 1]).tolist()}
+            "confusion_matrix": confusion_matrix(y, pred, labels=[0, 1]).tolist(),
+            "classification_report": classification_report(y, pred, labels=[0, 1],
+                    target_names=["Non-depressed", "Depressed"], output_dict=True, zero_division=0)}
 
 
 def main(argv=None):

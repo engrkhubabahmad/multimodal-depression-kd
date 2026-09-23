@@ -41,7 +41,10 @@ def main(argv=None):
         raise ValueError("Student test already scored with another selection")
     if a.output.exists() and any(a.output.iterdir()):
         marker = a.output / "complete.json"
-        if marker.is_file() and json.loads(marker.read_text()).get("selection") == selected:
+        saved = json.loads(marker.read_text()) if marker.is_file() else {}
+        predictions = a.output / "student_test_predictions.csv"
+        if saved.get("selection") == selected and predictions.is_file() and \
+                saved.get("predictions_sha256") == digest(predictions):
             print("Student test already scored; reusing:", a.output); return
         raise ValueError("Refusing to overwrite student test output")
     indexed = rows_for(a.features, split)
