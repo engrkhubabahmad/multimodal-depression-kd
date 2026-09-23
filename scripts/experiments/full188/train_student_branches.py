@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from tqdm.auto import tqdm
 from torch.utils.data import DataLoader
 from scripts.students.participant_student_v3.pretrain_text import (
     InductText, select_vectorizer, build_graph, transcript_map, participant_doc)
@@ -35,7 +36,8 @@ def train_text(root, train, val, output, seed, epochs):
                                 device=device, dtype=torch.float32)
     target = torch.tensor(y, dtype=torch.long, device=device)
     best = (-1., -1., -1.); stale = 0
-    for epoch in range(1, epochs + 1):
+    progress = tqdm(range(1, epochs + 1), desc="Student text epochs", unit="epoch")
+    for epoch in progress:
         model.train(); opt.zero_grad(set_to_none=True)
         _, logits = model.train_repr_logits(graph, conv)
         loss = torch.nn.functional.cross_entropy(logits[250:], target, weight=class_weight)
@@ -46,6 +48,7 @@ def train_text(root, train, val, output, seed, epochs):
             _, z = model.dev_repr_logits(xval, words)
             prob = torch.softmax(z, 1)[:, 1].cpu().numpy()
         m = metric(vy, prob); key = (m["macro_f1"], m["depressed_f1"], m["auroc"])
+        progress.set_postfix(val_macro_f1=f"{m['macro_f1']:.3f}")
         print(f"Student text {epoch}/{epochs}: val macroF1={m['macro_f1']:.4f}")
         if key > best:
             best = key; stale = 0
@@ -77,7 +80,8 @@ def train_audio(train, val, indexed, mean, std, output, seed, epochs):
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
     positive = torch.tensor(float(sum(train.label == 0) / sum(train.label == 1)), device=device)
     best = (-1., -1., -1.); stale = 0
-    for epoch in range(1, epochs + 1):
+    progress = tqdm(range(1, epochs + 1), desc="Student audio epochs", unit="epoch")
+    for epoch in progress:
         dataset.epoch = epoch; model.train()
         for x, y in loader:
             x, y = x.to(device), y.to(device)
@@ -89,6 +93,7 @@ def train_audio(train, val, indexed, mean, std, output, seed, epochs):
         val_df, _ = evaluate(model, val, indexed, mean, std, device, 16)
         m = metric(val_df.label.to_numpy(int), val_df.audio_probability.to_numpy(float))
         key = (m["macro_f1"], m["depressed_f1"], m["auroc"])
+        progress.set_postfix(val_macro_f1=f"{m['macro_f1']:.3f}")
         print(f"Student audio {epoch}/{epochs}: val macroF1={m['macro_f1']:.4f}")
         if key > best:
             best = key; stale = 0

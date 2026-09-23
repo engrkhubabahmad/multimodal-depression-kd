@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from tqdm.auto import tqdm
 from sklearn.metrics import f1_score, roc_auc_score, confusion_matrix, classification_report, balanced_accuracy_score, accuracy_score
 from scripts.teachers.idiap_text.export_targets import load_author
 from scripts.students.participant_student_v3.pretrain_text import select_vectorizer, transcript_map, participant_doc
@@ -86,7 +87,8 @@ def main(argv=None):
     target = torch.tensor(y, dtype=torch.long, device=device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     best = (-1., -1., -1.); stale = 0; history = []
-    for epoch in range(1, args.epochs + 1):
+    progress = tqdm(range(1, args.epochs + 1), desc="Text teacher epochs", unit="epoch")
+    for epoch in progress:
         model.train(); optimizer.zero_grad(set_to_none=True)
         loss = model.cross_entropy_loss_on_document_nodes(target, class_weight=weight)
         loss.backward(); optimizer.step()
@@ -95,6 +97,7 @@ def main(argv=None):
         model.eval()
         _, prob = inductive(model, vectorizer, val_docs, words)
         m = metric(vy, prob); key = (m["macro_f1"], m["depressed_f1"], m["auroc"])
+        progress.set_postfix(val_macro_f1=f"{m['macro_f1']:.3f}")
         history.append({"epoch": epoch, "loss": float(loss.detach().cpu()), **m})
         print(f"Text epoch {epoch}/{args.epochs} val macroF1={m['macro_f1']:.4f} depressedF1={m['depressed_f1']:.4f}")
         if key > best:

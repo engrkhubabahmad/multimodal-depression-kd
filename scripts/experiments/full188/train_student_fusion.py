@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from tqdm.auto import tqdm
 from torch.utils.data import DataLoader, TensorDataset
 from scipy.special import expit
 from scripts.students.participant_student_v3.fusion_model import FrozenBranchFusion
@@ -128,7 +129,8 @@ def main(argv=None):
                                 torch.from_numpy(np.asarray(soft if soft is not None else np.zeros(len(tr)), np.float32)))
         loader = DataLoader(dataset, batch_size=8, shuffle=True, generator=torch.Generator().manual_seed(42))
         best = (-1., -1., -1.); stale = 0
-        for epoch in range(1, a.epochs + 1):
+        progress = tqdm(range(1, a.epochs + 1), desc=f"{mode} epochs", unit="epoch")
+        for epoch in progress:
             model.train()
             for ab, tb, yb, qb in loader:
                 ab, tb, yb, qb = [x.to(device) for x in (ab, tb, yb, qb)]
@@ -142,6 +144,7 @@ def main(argv=None):
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.); optimizer.step()
             valp = predict(model, V, W, device); m = metric(va.label.to_numpy(int), valp)
             key = (m["macro_f1"], m["depressed_f1"], m["auroc"])
+            progress.set_postfix(val_macro_f1=f"{m['macro_f1']:.3f}")
             print(f"{mode} epoch {epoch}/{a.epochs}: val macroF1={m['macro_f1']:.4f}")
             if key > best:
                 best = key; stale = 0

@@ -1,8 +1,8 @@
 """Run the full-188 protocol in ordered, resumable Colab stages."""
 import argparse
+import importlib
 import shutil
-import subprocess
-import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 
@@ -20,6 +20,8 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--daic-root", type=Path, default=Path("/content/drive/MyDrive/DAIC_WOZ"))
     p.add_argument("--stage", choices=("all", *STAGES), default="all")
+    p.add_argument("--archive-incomplete", action="store_true",
+                   help="Move an incomplete stage to failed_attempts before retrying")
     a = p.parse_args(argv)
     daic = a.daic_root.resolve()
     exp = daic / "experiments/full188_seed42"
@@ -76,10 +78,14 @@ def main(argv=None):
             print(f"{name}: complete, skipped ({output})", flush=True)
             continue
         if output.exists() and any(output.iterdir()):
-            raise RuntimeError(f"{name} has incomplete output at {output}. Inspect it before rerunning this stage.")
-        cmd = [sys.executable, "-m", f"scripts.experiments.full188.{name}", *map(str, args)]
+            if not a.archive_incomplete:
+                raise RuntimeError(f"{name} has incomplete output at {output}. Inspect it or pass --archive-incomplete to preserve it and retry.")
+            archive = exp / "failed_attempts" / f"{name}_{datetime.now(timezone.utc):%Y%m%dT%H%M%S%fZ}"
+            archive.parent.mkdir(parents=True, exist_ok=True)
+            output.rename(archive)
+            print(f"Preserved incomplete {name} at {archive}", flush=True)
         print(f"Starting {name}: {output}", flush=True)
-        subprocess.run(cmd, check=True)
+        importlib.import_module(f"scripts.experiments.full188.{name}").main(list(map(str, args)))
         required(output / marker)
         print(f"Finished {name}", flush=True)
     print(f"Experiment: {exp}", flush=True)

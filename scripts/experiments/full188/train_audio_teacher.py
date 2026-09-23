@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from tqdm.auto import tqdm
 from torch.utils.data import DataLoader, Dataset
 from scripts.teachers.ussd_audio.common import CustomComparE16
 from .features import verified_split
@@ -129,7 +130,8 @@ def main(argv=None):
     pos_weight = torch.tensor(float(sum(tr.label == 0) / sum(tr.label == 1)), device=device)
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     best = (-1., -1., -1.); stale = 0; history = []
-    for epoch in range(1, a.epochs + 1):
+    progress = tqdm(range(1, a.epochs + 1), desc="Audio teacher epochs", unit="epoch")
+    for epoch in progress:
         dataset.epoch = epoch; model.train(); losses = []
         for x, y in loader:
             x, y = x.to(device), y.to(device)
@@ -141,6 +143,7 @@ def main(argv=None):
         result, _ = evaluate(model, va, indexed, mean, std, device, a.batch_size)
         m = metric(result.label.to_numpy(int), result.audio_probability.to_numpy(float))
         key = (m["macro_f1"], m["depressed_f1"], m["auroc"])
+        progress.set_postfix(val_macro_f1=f"{m['macro_f1']:.3f}")
         history.append({"epoch": epoch, "loss": float(np.mean(losses)), **m})
         print(f"Audio epoch {epoch}/{a.epochs} val macroF1={m['macro_f1']:.4f} depressedF1={m['depressed_f1']:.4f}")
         if key > best:
