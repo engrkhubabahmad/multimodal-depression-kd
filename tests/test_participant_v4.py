@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from scipy.special import expit
 from sklearn.feature_extraction.text import TfidfVectorizer
-from scripts.students.participant_student_v4 import export_text, compact_fusion
+from scripts.students.participant_student_v4 import export_text, compact_fusion, split42_baseline
 from scripts.students.participant_student_v4.common import (
     cached_or_create, complete, load_embeddings, check_splits)
 
@@ -116,6 +116,28 @@ class Improvements(unittest.TestCase):
             data['embedding'] += 1; np.savez(path, **data)
             with patch.object(export_text, 'load_weights', return_value=weights), self.assertRaisesRegex(ValueError, 'parity failed'):
                 export_text.main(args[:-1] + [str(root / 'bad')])
+
+    def test_seed42_fresh_split_and_holdout_remains_unscored(self):
+        with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()):
+            root = Path(td); source, _, _ = self.make_fixture(root)
+            feat = root / 'features'; feat.mkdir(); rows = []
+            for split, ids in [('train', range(1000, 1107)), ('dev', range(2000, 2034))]:
+                metadata = pd.read_csv(root / 'metadata' / f'{split}_split_Depression_AVEC2017.csv')
+                for pid, label in zip(metadata.Participant_ID, metadata.PHQ8_Binary):
+                    path = feat / f'{pid}.npy'
+                    np.save(path, np.full((130, 7), float(pid % 7 + label), dtype='float32'))
+                    rows.append({'participant_id': pid, 'label': label, 'feature_path': str(path), 'split': split})
+            pd.DataFrame(rows).to_csv(feat / 'participant_manifest.csv', index=False)
+            out = root / 'fresh'
+            args = ['--daic-root', str(root), '--features', str(feat), '--output', str(out), '--seed', '42']
+            split42_baseline.run(args); split42_baseline.run(args)
+            manifest = pd.read_csv(out / 'split_manifest.csv')
+            self.assertEqual(manifest.experimental_split.value_counts().to_dict(),
+                             {'train': 99, 'dev': 21, 'holdout': 21})
+            self.assertEqual(len(pd.read_csv(out / 'metrics.csv')), 6)
+            self.assertFalse(list(out.glob('*holdout*predictions*')))
+            with self.assertRaises(ValueError):
+                split42_baseline.run(args[:-1] + ['43'])
 
 
 if __name__ == '__main__': unittest.main()

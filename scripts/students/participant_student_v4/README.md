@@ -64,3 +64,23 @@ python -m unittest discover -s tests -v
 ```
 
 The synthetic tests check the inductive graph algebra, cached artifact integrity, alignment, frozen DEV parity, fit independence from DEV labels and saved-head inference. They are not a substitute for running the parity gate with your actual v3 checkpoints in Colab.
+
+## Separate seed-42 70/15/15 split
+
+`split42_baseline` makes a new participant-stratified split of the **141 labeled canonical TRAIN+DEV participants**. It excludes corrupt DEV participant 440, leaves the official blind TEST untouched, and produces **99 TRAIN / 21 DEV / 21 internal holdout**. This is the nearest integer allocation to 70/15/15. Its fixed seed is 42 and it does not perform OOF.
+
+This experiment trains fresh, simple text/audio/fusion linear baselines using raw participant transcripts and the label-independent ComParE16 feature cache. It fits the vocabulary, class-balanced regularized heads and scaling using its new TRAIN-99 only. It does **not** reuse the old v3 branches or their embeddings, because those weights already learned from participants placed into this new DEV or holdout. The output includes the participant split manifest, train and dev predictions, confusion matrices in `audit.json` and `metrics.csv`, and serialized model components. The 21-person internal holdout is allocated but **not scored** by this command. This is a split sensitivity diagnostic, not a rerun of the RA-KD architecture. Existing DEV outcomes informed our work, so this internal holdout should not be called an independent publication test.
+
+Run in the same notebook with the checkout and `DAIC`, `V4`, `CODE` variables above. Point `FEATURES` at the directory holding your existing `participant_manifest.csv` and the referenced ComParE16 `.npy` files; `LOCAL_AUDIO` can point at the optional Colab local cache with `train/<id>.npy` and `dev/<id>.npy`.
+
+```python
+FEATURES = Path('/content/drive/MyDrive/DAIC_WOZ/REPLACE_WITH_COMPARE16_CACHE')
+assert (FEATURES / 'participant_manifest.csv').is_file(), 'Set FEATURES to the existing ComParE16 cache'
+subprocess.run([sys.executable, '-m', 'scripts.students.participant_student_v4.split42_baseline',
+                '--daic-root', str(DAIC), '--features', str(FEATURES),
+                '--output', str(V4 / 'split70_15_15_seed42'), '--seed', '42'],
+               cwd=CODE, check=True)
+display(__import__('pandas').read_csv(V4 / 'split70_15_15_seed42/metrics.csv'))
+```
+
+The command reads one participant audio file at a time and summarizes 130 features over frames; it does not retain the full audio cache in RAM. To evaluate the actual RA-KD method under this new split, its text branch, audio branch, teachers and fusion must be retrained with the exact new manifest first. Do not compare the previous canonical DEV-34 score directly with this new DEV-21 score as if only the random seed changed.
