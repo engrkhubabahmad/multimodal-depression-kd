@@ -150,13 +150,16 @@ class Improvements(unittest.TestCase):
             final = root / 'final_student_test'
             testargs = ['--daic-root', str(root), '--features', str(feat),
                         '--split-baseline', str(out), '--student-run', str(student),
-                        '--student-mode', 'ra_kd', '--output', str(final)]
+                        '--student-mode', 'ra_kd', '--allow-exploratory-proxy-test', '--output', str(final)]
+            with self.assertRaisesRegex(ValueError, 'closed for the proxy'):
+                score_split42_student.run([a for a in testargs if a != '--allow-exploratory-proxy-test'])
             score_split42_student.run(testargs); score_split42_student.run(testargs)
             self.assertEqual(len(pd.read_csv(final / 'student_test_predictions.csv')), 21)
             self.assertFalse(list(final.glob('*teacher*predictions*')))
             with self.assertRaisesRegex(ValueError, 'already evaluated'):
                 score_split42_student.run(testargs[:testargs.index('--student-mode')]
-                                           + ['--student-mode', 'standard_kd', '--output', str(root / 'other_test')])
+                                           + ['--student-mode', 'standard_kd', '--allow-exploratory-proxy-test',
+                                              '--output', str(root / 'other_test')])
             with self.assertRaises(ValueError):
                 split42_baseline.run(args[:-1] + ['43'])
 

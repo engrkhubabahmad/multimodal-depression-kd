@@ -20,8 +20,14 @@ def run(argv=None):
     p.add_argument("--split-baseline", type=Path, required=True)
     p.add_argument("--student-run", type=Path, required=True)
     p.add_argument("--student-mode", choices=("no_kd", "standard_kd", "ra_kd"), required=True)
+    p.add_argument("--allow-exploratory-proxy-test", action="store_true",
+                   help="Acknowledge this student uses shallow proxy teachers, not the original teacher architectures")
     p.add_argument("--output", type=Path, required=True)
     a = p.parse_args(argv)
+    if not a.allow_exploratory_proxy_test:
+        raise ValueError("Reserved student test is closed for the proxy experiment. "
+                         "Only an explicitly exploratory proxy test may use --allow-exploratory-proxy-test; "
+                         "retrain the original teachers first for publication claims.")
     if a.output.resolve() == a.student_run.resolve() or a.output.resolve() == a.split_baseline.resolve():
         raise ValueError("Use a distinct test-only output directory")
     for root in (a.split_baseline, a.student_run):

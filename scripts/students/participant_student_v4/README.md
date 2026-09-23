@@ -1,5 +1,7 @@
 # Consistent text export and compact fusion (experimental v4)
 
+> **Research status (2026-09-24):** The seed-42 split experiment below is an exploratory linear proxy baseline. It does not train or use the locked Idiap text and USSD audio teacher architectures. On the user's DEV-21, the proxy text and audio models each detected only 1 of 6 depressed participants; RA-KD and standard KD produced the same confusion matrix. Do not present these as the final RA-KD method or run the reserved student test as a publication result. The next required code stage is split-aware retraining and TRAIN-99 target export for the original teachers, followed by the same controlled student comparisons.
+
 This experiment uses the frozen v3 text checkpoint and the existing v3 audio branch embeddings. It writes only inside the requested new v4 output directories. It does not retrain either branch or read TEST. The original v3 artifacts remain the baseline.
 
 ## Why this experiment
@@ -107,7 +109,7 @@ display(__import__('pandas').read_csv(STUDENT / 'dev_missing_noise.csv')
         .agg(['mean', 'std']).round(3))
 ```
 
-**After choosing exactly one student mode from validation**, run the reserved 21-person student test once. The scorer reads only that student's head, the TRAIN-fitted vectorizer, raw participant inputs, and the internal test labels. It never runs either teacher on these 21 participants. A selection record inside the student run prevents rerunning with a different mode or output path. The official DAIC-WOZ blind TEST is separate and remains unopened.
+**Only for an explicitly exploratory proxy study, after choosing exactly one student mode from validation**, the reserved 21-person student test can be scored once. The scorer reads only that student's head, the TRAIN-fitted vectorizer, raw participant inputs, and the internal test labels. It never runs either teacher on these 21 participants. A selection record inside the student run prevents rerunning with a different mode or output path. The official DAIC-WOZ blind TEST is separate and remains unopened. The present DEV results provide no compelling RA-KD gain, so keep this test closed while developing the original-teacher pipeline.
 
 ```python
 CHOSEN_MODE = 'ra_kd'  # Set once after reviewing validation; also supports no_kd or standard_kd
@@ -115,6 +117,7 @@ subprocess.run([sys.executable, '-m', 'scripts.students.participant_student_v4.s
                 '--daic-root', str(DAIC), '--features', str(FEATURES),
                 '--split-baseline', str(V4 / 'split70_15_15_seed42'),
                 '--student-run', str(STUDENT), '--student-mode', CHOSEN_MODE,
+                '--allow-exploratory-proxy-test',
                 '--output', str(V4 / 'split70_15_15_seed42_student_test')],
                cwd=CODE, check=True)
 print((V4 / 'split70_15_15_seed42_student_test/student_test_metrics.json').read_text())
