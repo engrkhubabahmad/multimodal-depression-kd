@@ -19,9 +19,13 @@ SOURCE = Path('/content/reliability-aware-depression-kd')
 CODE = Path('/content/reliability-aware-depression-kd-v4')
 COMMIT = '<PR commit SHA>'
 assert (SOURCE / '.git').exists(), 'Adjust SOURCE to your existing clone'
+subprocess.run(['git', '-C', str(SOURCE), 'fetch', 'origin', COMMIT], check=True)
 if not CODE.exists():
-    subprocess.run(['git', '-C', str(SOURCE), 'fetch', 'origin', COMMIT], check=True)
     subprocess.run(['git', '-C', str(SOURCE), 'worktree', 'add', '--detach', str(CODE), COMMIT], check=True)
+else:
+    assert (CODE / '.git').exists(), 'CODE exists but is not the v4 worktree'
+    assert not subprocess.check_output(['git', '-C', str(CODE), 'status', '--porcelain'], text=True).strip(), 'Commit or save edits in CODE first'
+    subprocess.run(['git', '-C', str(CODE), 'switch', '--detach', COMMIT], check=True)
 assert subprocess.check_output(['git', '-C', str(CODE), 'rev-parse', 'HEAD'], text=True).strip() == COMMIT
 ```
 
