@@ -1,0 +1,89 @@
+"""Run the full-188 protocol in ordered, resumable Colab stages."""
+import argparse
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+STAGES = ("split", "features", "train_text_teacher", "train_audio_teacher",
+          "train_student_branches", "train_student_fusion")
+
+
+def required(path):
+    if not path.is_file():
+        raise FileNotFoundError(f"Required input missing: {path}")
+    return path
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--daic-root", type=Path, default=Path("/content/drive/MyDrive/DAIC_WOZ"))
+    p.add_argument("--stage", choices=("all", *STAGES), default="all")
+    a = p.parse_args(argv)
+    daic = a.daic_root.resolve()
+    exp = daic / "experiments/full188_seed42"
+    cache = daic / "experiments/ussd_compare16"
+    tools = daic.parent / "tools"
+    idiap = tools / "solo_teacher_sources/bias_in_daic-woz"
+    smile_drive = tools / "opensmile-3.0.2-linux-x86_64"
+    smile_local = Path("/content/opensmile-3.0.2-linux-x86_64")
+
+    for path in (daic / "metadata/full_test_split.csv",
+                 daic / "metadata/train_split_Depression_AVEC2017.csv",
+                 daic / "metadata/dev_split_Depression_AVEC2017.csv",
+                 cache / "participant_manifest.csv", idiap / "main.py"):
+        required(path)
+    if a.stage in ("all", "features"):
+        if not smile_local.exists():
+            if not smile_drive.is_dir():
+                raise FileNotFoundError(f"OpenSMILE release missing: {smile_drive}")
+            print(f"Copying OpenSMILE to {smile_local}...", flush=True)
+            shutil.copytree(smile_drive, smile_local)
+        config = required(smile_local / "config/compare16/ComParE_2016.conf")
+        binary = required(smile_local / "bin/SMILExtract")
+        binary.chmod(binary.stat().st_mode | 0o111)
+    else:
+        config = smile_local / "config/compare16/ComParE_2016.conf"
+        binary = smile_local / "bin/SMILExtract"
+
+    split = exp / "split"
+    features = exp / "features"
+    text_teacher = exp / "teachers/text"
+    audio_teacher = exp / "teachers/audio"
+    branches = exp / "students/branches"
+    fusion = exp / "students/fusion"
+    specs = {
+        "split": (split, "complete.json", ["--daic-root", daic, "--output", split, "--seed", 42]),
+        "features": (features, "provenance.json", ["--split-dir", split, "--daic-root", daic,
+                     "--canonical-features", cache, "--output", features,
+                     "--compare16-config", config, "--smile-extract", binary]),
+        "train_text_teacher": (text_teacher, "audit.json", ["--daic-root", daic,
+                               "--split-dir", split, "--idiap-source", idiap, "--output", text_teacher]),
+        "train_audio_teacher": (audio_teacher, "audit.json", ["--split-dir", split,
+                                "--features", features, "--output", audio_teacher, "--batch-size", 16]),
+        "train_student_branches": (branches, "audit.json", ["--daic-root", daic,
+                                   "--split-dir", split, "--features", features,
+                                   "--audio-teacher", audio_teacher, "--output", branches]),
+        "train_student_fusion": (fusion, "audit.json", ["--split-dir", split,
+                                 "--student-branches", branches, "--text-teacher", text_teacher,
+                                 "--audio-teacher", audio_teacher, "--output", fusion]),
+    }
+    exp.mkdir(parents=True, exist_ok=True)
+    for name in (STAGES if a.stage == "all" else (a.stage,)):
+        output, marker, args = specs[name]
+        if (output / marker).is_file():
+            print(f"{name}: complete, skipped ({output})", flush=True)
+            continue
+        if output.exists() and any(output.iterdir()):
+            raise RuntimeError(f"{name} has incomplete output at {output}. Inspect it before rerunning this stage.")
+        cmd = [sys.executable, "-m", f"scripts.experiments.full188.{name}", *map(str, args)]
+        print(f"Starting {name}: {output}", flush=True)
+        subprocess.run(cmd, check=True)
+        required(output / marker)
+        print(f"Finished {name}", flush=True)
+    print(f"Experiment: {exp}", flush=True)
+
+
+if __name__ == "__main__":
+    main()
