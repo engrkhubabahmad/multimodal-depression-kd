@@ -24,7 +24,7 @@ def main(argv=None):
     p.add_argument("--stage", choices=("all", *STAGES), default="all")
     p.add_argument("--archive-incomplete", action="store_true",
                    help="Move an incomplete stage to failed_attempts before retrying")
-    a = p.parse_args(argv)
+    a = p.parse_args([str(value) for value in argv] if argv is not None else None)
     daic = a.daic_root.resolve()
     exp = daic / f"experiments/full188_seed{a.seed}"
     prior = daic / "experiments/full188_seed42/features"

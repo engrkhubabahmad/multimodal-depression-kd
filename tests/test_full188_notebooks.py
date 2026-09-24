@@ -17,6 +17,10 @@ class NotebookSetup(unittest.TestCase):
                 self.assertIn(f"BRANCH = '{BRANCH}'", setup)
                 self.assertIn("env=auth_env", setup)
                 self.assertNotIn("git = ['git', '-c'", setup)
+                stage_cells = '\n'.join(''.join(cell['source']) for cell in notebook['cells']
+                                        if cell['cell_type'] == 'code')
+                self.assertIn(f"'--seed', '{seed}'", stage_cells)
+                self.assertNotIn(f"'--seed', {seed}", stage_cells)
                 for cell in notebook["cells"]:
                     if cell["cell_type"] == "code":
                         compile("".join(cell["source"]), str(seed), "exec")
