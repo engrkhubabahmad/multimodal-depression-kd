@@ -8,6 +8,13 @@ from scripts.experiments.full188.split import main, prepare
 
 
 class Split188(unittest.TestCase):
+    def test_runner_split_without_external_tools_or_cache(self):
+        from scripts.experiments.full188.run_all import main as run_stage
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); self.fixture(root)
+            run_stage(["--daic-root", str(root), "--stage", "split", "--seed", "103"])
+            self.assertTrue((root / "experiments/full188_80_10_10_seed103/split/complete.json").is_file())
+
     def fixture(self, root):
         folder = root / 'metadata'; folder.mkdir()
         tr = np.arange(1000, 1107); dv = np.r_[np.arange(2000, 2034), 440]

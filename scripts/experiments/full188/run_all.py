@@ -21,6 +21,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--daic-root", type=Path, default=Path("/content/drive/MyDrive/DAIC_WOZ"))
     p.add_argument("--seed", type=int, choices=(42, 103), default=103)
+    p.add_argument("--idiap-source", type=Path, help="Directory containing the Idiap author main.py")
     p.add_argument("--stage", choices=("all", *STAGES), default="all")
     p.add_argument("--archive-incomplete", action="store_true",
                    help="Move an incomplete stage to failed_attempts before retrying")
@@ -33,15 +34,10 @@ def main(argv=None):
     use_prior = a.seed == 103 and (prior / "provenance.json").is_file() and (prior / "participant_manifest.csv").is_file()
     cache = prior if use_prior else daic / "experiments/ussd_compare16"
     tools = daic.parent / "tools"
-    idiap = tools / "solo_teacher_sources/bias_in_daic-woz"
+    idiap = a.idiap_source or tools / "solo_teacher_sources/bias_in_daic-woz"
     smile_drive = tools / "opensmile-3.0.2-linux-x86_64"
     smile_local = Path("/content/opensmile-3.0.2-linux-x86_64")
 
-    for path in (daic / "metadata/full_test_split.csv",
-                 daic / "metadata/train_split_Depression_AVEC2017.csv",
-                 daic / "metadata/dev_split_Depression_AVEC2017.csv",
-                 cache / "participant_manifest.csv", idiap / "main.py"):
-        required(path)
     needs_extraction = a.stage in ("all", "features") and not (exp / "features/provenance.json").is_file() and not use_prior
     if needs_extraction:
         if not smile_local.exists():
@@ -86,6 +82,19 @@ def main(argv=None):
                 raise ValueError("Completed split belongs to another seed")
             print(f"{name}: complete, skipped ({output})", flush=True)
             continue
+        # Only validate inputs used by this stage. A metadata split needs no
+        # external author code, OpenSMILE installation or feature cache.
+        inputs = {
+            "split": [daic / "metadata" / filename for filename in (
+                "full_test_split.csv", "train_split_Depression_AVEC2017.csv",
+                "dev_split_Depression_AVEC2017.csv", "test_split_Depression_AVEC2017.csv")],
+            "features": [split / "complete.json", cache / "participant_manifest.csv"],
+            "train_text_teacher": [split / "complete.json", idiap / "main.py"],
+            "train_audio_teacher": [split / "complete.json", features / "participant_manifest.csv"],
+            "train_student_branches": [split / "complete.json", features / "participant_manifest.csv", audio_teacher / "audit.json"],
+            "train_student_fusion": [split / "complete.json", branches / "audit.json", text_teacher / "audit.json", audio_teacher / "audit.json"],
+        }
+        for path in inputs[name]: required(path)
         if output.exists() and any(output.iterdir()):
             if not a.archive_incomplete:
                 raise RuntimeError(f"{name} has incomplete output at {output}. Inspect it or pass --archive-incomplete to preserve it and retry.")
