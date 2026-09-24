@@ -82,6 +82,27 @@ class ParticipantBags(Segments):
         return torch.from_numpy(((blocks - self.mean[None]) / self.std[None]).astype(np.float32)), torch.tensor(float(row.label))
 
 
+class BalancedPairs:
+    """Every batch contains one positive and one negative TRAIN participant."""
+    def __init__(self, rows, seed):
+        self.positive = np.flatnonzero(rows.label.to_numpy(int) == 1)
+        self.negative = np.flatnonzero(rows.label.to_numpy(int) == 0)
+        if not len(self.positive) or not len(self.negative): raise ValueError('Both classes required')
+        self.seed = seed; self.epoch = 0
+
+    def __len__(self): return len(self.negative)
+
+    def __iter__(self):
+        rng = np.random.default_rng(np.random.SeedSequence([self.seed, self.epoch]))
+        neg = rng.permutation(self.negative)
+        pos = np.concatenate([rng.permutation(self.positive) for _ in
+                              range(math.ceil(len(neg) / len(self.positive)))])[:len(neg)]
+        for positive, negative in zip(pos, neg):
+            pair = [int(positive), int(negative)]
+            rng.shuffle(pair)
+            yield pair
+
+
 def evaluate(model, frame, indexed, mean, std, device, batch=16):
     model.eval(); records = []; features = []
     with torch.inference_mode():
@@ -131,8 +152,12 @@ def main(argv=None):
     p.add_argument('--published-checkpoint', type=Path)
     p.add_argument('--author-root', type=Path,
                    help='USSD author checkout for pinned run-4 normalization artifact')
+    p.add_argument('--balanced-pairs', action='store_true',
+                   help='One depressed and one non-depressed TRAIN participant per batch; fresh model only')
     a = p.parse_args(argv)
     if a.seed not in (42, 103) or min(a.epochs, a.patience, a.batch_size) < 1: raise ValueError("Invalid training settings")
+    if a.balanced_pairs and (a.published_checkpoint or a.batch_size != 16):
+        raise ValueError('Balanced pairs require fresh weights and batch-size 16 (8 segments per participant)')
     full = verified_split(a.split_dir, a.coverage_dir); indexed = rows_for(a.features, full)
     tr = full.loc[full.split.eq("train")]; va = full.loc[full.split.eq("val")]
     if bool(a.published_checkpoint) != bool(a.author_root):
@@ -150,6 +175,7 @@ def main(argv=None):
                  "initialization": 'published' if a.published_checkpoint else 'fresh',
                  "published_checkpoint_sha256": digest(a.published_checkpoint) if a.published_checkpoint else None,
                  "normalization_sha256": normalization_sha256,
+                 "balanced_pairs": a.balanced_pairs,
                  "training_unit": "participant_mean_probability", "segments_per_participant": 8}
     if a.published_checkpoint and signature['published_checkpoint_sha256'] != AUTHOR_RUN4_CHECKPOINT_SHA256:
         raise ValueError('Published USSD run #4 checkpoint SHA-256 differs from pinned original')
@@ -164,9 +190,14 @@ def main(argv=None):
     np.savez_compressed(a.output / "normalization.npz", mean=mean, std=std)
     if a.batch_size % 8: raise ValueError("batch-size must be a multiple of 8 segments")
     dataset = ParticipantBags(tr, indexed, mean, std, samples=8, seed=a.seed)
-    generator = torch.Generator().manual_seed(a.seed)
-    loader = DataLoader(dataset, batch_size=a.batch_size // 8, shuffle=True, generator=generator,
-                        num_workers=0, pin_memory=torch.cuda.is_available())
+    if a.balanced_pairs:
+        pairs = BalancedPairs(dataset.rows, a.seed)
+        loader = DataLoader(dataset, batch_sampler=pairs, num_workers=0,
+                            pin_memory=torch.cuda.is_available())
+    else:
+        generator = torch.Generator().manual_seed(a.seed)
+        loader = DataLoader(dataset, batch_size=a.batch_size // 8, shuffle=True, generator=generator,
+                            num_workers=0, pin_memory=torch.cuda.is_available())
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = CustomComparE16().to(device)
     if a.published_checkpoint:
@@ -197,12 +228,14 @@ def main(argv=None):
     progress = tqdm(range(1, a.epochs + 1), desc="Audio teacher epochs", unit="epoch")
     for epoch in progress:
         dataset.epoch = epoch; model.train(); losses = []
+        if a.balanced_pairs: pairs.epoch = epoch
         for x, y in loader:
             x, y = x.to(device), y.to(device)
             _, probabilities, _ = model.forward_logits(x.flatten(0, 1))
             participant_prob = probabilities.view(len(y), dataset.samples).mean(1).clamp(1e-5, 1 - 1e-5)
             loss = torch.nn.functional.binary_cross_entropy(
-                participant_prob, y, weight=torch.where(y > 0, pos_weight, 1.))
+                participant_prob, y,
+                weight=None if a.balanced_pairs else torch.where(y > 0, pos_weight, 1.))
             opt.zero_grad(set_to_none=True); loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
             opt.step(); losses.append(float(loss.detach().cpu()))
@@ -239,10 +272,11 @@ def main(argv=None):
       "architecture": "USSD CustomComparE16", "previous_checkpoint_loaded": bool(a.published_checkpoint),
       "normalization_source": 'pinned_author_run4' if a.published_checkpoint else 'new_train_only',
       "normalization_sha256": normalization_sha256, "epoch_zero": epoch_zero,
+      "balanced_pairs": a.balanced_pairs,
       "published_checkpoint_prior_exposure": {
-          "original_train_ids_in_val": int(sum(va.source_split.eq('canonical_train'))),
+          "original_train_ids_in_val": int(sum(va.source_split.eq('canonical_train'))) if a.published_checkpoint else 0,
           "original_train_ids_in_internal_test": int(sum(full.loc[full.split.eq('student_test'),
-                                                     'source_split'].eq('canonical_train'))),
+                                                     'source_split'].eq('canonical_train'))) if a.published_checkpoint else 0,
           "clean_holdout_claim_valid": False if a.published_checkpoint else True},
       "train_only_normalization": not bool(a.published_checkpoint), "training_unit": "participant", "train_participants": 150, "val_participants": 19,
       "student_test_opened": False, "oof": False, "best_epoch": state["best_epoch"], **scores_out}, indent=2) + "\n")
