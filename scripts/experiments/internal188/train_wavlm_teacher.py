@@ -51,9 +51,9 @@ def main(argv=None):
                 raise ValueError(f'{row.participant_id}: WavLM revision differs')
             vectors.append(z['embedding'].astype(np.float32))
     X = np.stack(vectors)
-    if X.shape != (169, 1536) or not np.isfinite(X).all(): raise ValueError('Invalid WavLM embeddings')
+    if X.shape != (150, 1536) or not np.isfinite(X).all(): raise ValueError('Invalid WavLM embeddings')
     train = audio.split.eq('train').to_numpy(); val = audio.split.eq('val').to_numpy()
-    if train.sum() != 150 or val.sum() != 19: raise ValueError('TRAIN/VAL counts changed')
+    if train.sum() != 113 or val.sum() != 37: raise ValueError('TRAIN/VAL counts changed')
     y = audio.label.to_numpy(int)
     # Predeclared C and 0.5 threshold: no search over the small validation group.
     model = make_pipeline(StandardScaler(), LogisticRegression(C=.1, class_weight='balanced',
@@ -75,7 +75,7 @@ def main(argv=None):
         'pretrained_revision': embed_audit['revision'], 'embedding_manifest_sha256': digest(a.embeddings / 'participant_manifest.csv'),
         'split_sha256': digest(a.split_dir / 'manifest.csv'), 'seed': a.seed,
         'classifier': 'StandardScaler + balanced L2 logistic regression', 'C': .1, 'threshold': .5,
-        'normalization_fit': 'TRAIN-150 only', 'internal_test_opened': False,
+        'normalization_fit': 'TRAIN-113 only', 'internal_test_opened': False,
         'pretrained_on_daic': False, 'train': results['train'], 'val': results['val']}, indent=2) + '\n')
     print('TRAIN:', results['train']); print('VAL:', results['val'])
 

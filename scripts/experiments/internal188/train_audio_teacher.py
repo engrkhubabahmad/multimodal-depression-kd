@@ -1,4 +1,4 @@
-"""USSD ComParE16+LSTM on TRAIN-150 with fresh or published initialization."""
+"""USSD ComParE16+LSTM on TRAIN-113 with fresh or published initialization."""
 from __future__ import annotations
 import argparse
 import json
@@ -278,7 +278,7 @@ def main(argv=None):
           "original_train_ids_in_internal_test": int(sum(full.loc[full.split.eq('student_test'),
                                                      'source_split'].eq('canonical_train'))) if a.published_checkpoint else 0,
           "clean_holdout_claim_valid": False if a.published_checkpoint else True},
-      "train_only_normalization": not bool(a.published_checkpoint), "training_unit": "participant", "train_participants": 150, "val_participants": 19,
+      "train_only_normalization": not bool(a.published_checkpoint), "training_unit": "participant", "train_participants": 113, "val_participants": 37,
       "student_test_opened": False, "oof": False, "best_epoch": state["best_epoch"], **scores_out}, indent=2) + "\n")
     print("Saved fresh audio teacher:", a.output)
 

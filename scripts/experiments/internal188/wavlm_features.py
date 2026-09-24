@@ -3,6 +3,7 @@ import argparse
 import json
 import math
 import os
+import shutil
 import tempfile
 import wave
 from pathlib import Path
@@ -57,17 +58,27 @@ def main(argv=None):
     p.add_argument('--coverage-dir', type=Path, required=True)
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--batch-size', type=int, default=2)
+    p.add_argument('--reuse-from', type=Path,
+                   help='Completed earlier WavLM cache; copy matching TRAIN/VAL embeddings only')
     a = p.parse_args(argv)
     if a.batch_size < 1: raise ValueError('Batch size must be positive')
     manifest = verified_split(a.split_dir, a.coverage_dir)
     selected = manifest.loc[manifest.split.isin(['train', 'val'])].sort_values('participant_id')
     coverage = pd.read_csv(a.coverage_dir / 'participant_manifest.csv').set_index('participant_id')
-    revision = model_info(MODEL).sha
+    previous = None
+    if a.reuse_from:
+        previous_audit = json.loads((a.reuse_from / 'audit.json').read_text())
+        if (previous_audit['model'] != MODEL or previous_audit['chunks_per_participant'] != CHUNKS
+                or previous_audit['seconds_per_chunk'] != SECONDS or previous_audit['sample_rate'] != SAMPLE_RATE
+                or previous_audit['embedding_dim'] != 1536):
+            raise ValueError('Prior WavLM cache uses another extraction protocol')
+        revision = previous_audit['revision']
+        previous = pd.read_csv(a.reuse_from / 'participant_manifest.csv').set_index('participant_id')
+        if previous.index.duplicated().any(): raise ValueError('Prior WavLM cache contains duplicate IDs')
+    else:
+        revision = model_info(MODEL).sha
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    extractor = AutoFeatureExtractor.from_pretrained(MODEL, revision=revision)
-    model = AutoModel.from_pretrained(MODEL, revision=revision).to(device).eval()
-    model.requires_grad_(False)
-    if int(model.config.hidden_size) != 768: raise ValueError('Unexpected WavLM Base+ embedding dimension')
+    extractor = model = None
     a.output.mkdir(parents=True, exist_ok=True)
     cache = a.output / 'participants'; cache.mkdir(exist_ok=True)
     rows = []
@@ -76,6 +87,14 @@ def main(argv=None):
         transcript = Path(coverage.loc[pid, 'transcript_path'])
         transcript_sha = digest(transcript)
         path = cache / f'{pid}.npz'
+        if not path.is_file() and previous is not None and pid in previous.index:
+            prior = previous.loc[pid]
+            source = Path(prior.feature_path)
+            with np.load(source, allow_pickle=False) as z:
+                if (str(z['revision']) != revision or str(z['transcript_sha256']) != transcript_sha
+                        or z['embedding'].shape != (1536,) or not np.isfinite(z['embedding']).all()):
+                    raise ValueError(f'{pid}: prior WavLM embedding differs')
+            shutil.copy2(source, path)
         if path.is_file():
             with np.load(path, allow_pickle=False) as z:
                 if (str(z['revision']) != revision or str(z['transcript_sha256']) != transcript_sha
@@ -83,6 +102,11 @@ def main(argv=None):
                     raise ValueError(f'{pid}: cached WavLM embedding or transcript changed')
                 raw_sha = str(z['raw_audio_sha256'])
         else:
+            if model is None:
+                extractor = AutoFeatureExtractor.from_pretrained(MODEL, revision=revision)
+                model = AutoModel.from_pretrained(MODEL, revision=revision).to(device).eval()
+                model.requires_grad_(False)
+                if int(model.config.hidden_size) != 768: raise ValueError('Unexpected WavLM Base+ embedding dimension')
             audio, raw_sha = participant_audio(a.daic_root, pid, transcript)
             chunks = windows(audio)
             vectors = []
@@ -116,9 +140,10 @@ def main(argv=None):
         'split_sha256': digest(a.split_dir / 'manifest.csv'),
         'coverage_sha256': digest(a.coverage_dir / 'participant_manifest.csv'),
         'sample_rate': SAMPLE_RATE, 'seconds_per_chunk': SECONDS, 'chunks_per_participant': CHUNKS,
-        'embedding_dim': 1536, 'train_count': 150, 'val_count': 19,
+        'embedding_dim': 1536, 'train_count': 113, 'val_count': 37,
+        'reused_from': str(a.reuse_from) if a.reuse_from else None,
         'internal_test_media_opened': False, 'daic_finetuning': False}, indent=2) + '\n')
-    print('Cached 169 TRAIN/VAL participants; WavLM revision:', revision)
+    print('Cached 150 TRAIN/VAL participants; WavLM revision:', revision)
 
 
 if __name__ == '__main__': main()

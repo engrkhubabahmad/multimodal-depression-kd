@@ -1,4 +1,4 @@
-"""Create a stratified 150/19/19 participant split from verified labeled metadata."""
+"""Create a 113/37/38 split, preserving the prior untouched internal TEST roster."""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -30,7 +30,7 @@ def table(path, id_name, label_name=None):
     return d
 
 
-def prepare(root, seed=103):
+def prepare(root, prior_split_dir, seed=103):
     metadata = Path(root) / "metadata"
     paths = {name: metadata / name for name in (
         "train_split_Depression_AVEC2017.csv", "dev_split_Depression_AVEC2017.csv",
@@ -59,27 +59,46 @@ def prepare(root, seed=103):
     combined = pd.concat([d.assign(source_split=name) for name, d in groups.items()], ignore_index=True)
     if len(combined) != 188 or 440 in set(combined.participant_id):
         raise ValueError("Expected 188 usable labeled participants excluding 440")
-    first, remain = train_test_split(combined, train_size=150, random_state=seed,
-                                     stratify=combined.label)
-    val, student_test = train_test_split(remain, train_size=19, random_state=seed,
-                                         stratify=remain.label)
+    prior_split_dir = Path(prior_split_dir)
+    prior_marker = json.loads((prior_split_dir / 'complete.json').read_text())
+    prior_path = prior_split_dir / 'manifest.csv'
+    if digest(prior_path) != prior_marker['manifest_sha256']:
+        raise ValueError('Prior split manifest changed')
+    prior = pd.read_csv(prior_path)
+    if prior.split.value_counts().to_dict() != {'train': 150, 'val': 19, 'student_test': 19}:
+        raise ValueError('Expected prior 150/19/19 split')
+    if (not combined.set_index('participant_id').label.sort_index().equals(
+            prior.set_index('participant_id').label.sort_index())):
+        raise ValueError('Prior split IDs/labels differ from 188-person pool')
+    old_train = combined.loc[combined.participant_id.isin(prior.loc[prior.split.eq('train'), 'participant_id'])]
+    old_val = combined.loc[combined.participant_id.isin(prior.loc[prior.split.eq('val'), 'participant_id'])]
+    old_test = combined.loc[combined.participant_id.isin(prior.loc[prior.split.eq('student_test'), 'participant_id'])]
+    # Previous VAL participants enter TRAIN so the new VAL does not reuse the
+    # 19 labels already examined in earlier model-selection experiments.
+    extra_test, remain = train_test_split(old_train, train_size=19, random_state=seed,
+                                          stratify=old_train.label)
+    val, fit_from_old_train = train_test_split(remain, train_size=37, random_state=seed,
+                                               stratify=remain.label)
+    first = pd.concat([fit_from_old_train, old_val])
+    student_test = pd.concat([old_test, extra_test])
     parts = [d.assign(split=name) for name, d in
              (("train", first), ("val", val), ("student_test", student_test))]
     result = pd.concat(parts).sort_values("participant_id").reset_index(drop=True)
-    if result.split.value_counts().to_dict() != {"train": 150, "val": 19, "student_test": 19}:
+    if result.split.value_counts().to_dict() != {"train": 113, "val": 37, "student_test": 38}:
         raise ValueError("Split sizes changed")
-    return result, paths
+    return result, paths, digest(prior_path)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--daic-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument('--prior-split-dir', type=Path, required=True)
     parser.add_argument("--seed", type=int, default=103)
     a = parser.parse_args(argv)
     if a.seed not in (42, 103): raise ValueError("Supported protocol seeds are 42 and 103")
-    manifest, paths = prepare(a.daic_root, a.seed)
-    signature = {"seed": a.seed, "split": [150, 19, 19],
+    manifest, paths, prior_sha = prepare(a.daic_root, a.prior_split_dir, a.seed)
+    signature = {"seed": a.seed, "split": [113, 37, 38], 'prior_split_sha256': prior_sha,
                  "source_sha256": {name: digest(path) for name, path in paths.items()},
                  "code_sha256": digest(Path(__file__))}
     marker = a.output / "complete.json"
@@ -87,7 +106,7 @@ def main(argv=None):
         saved = json.loads(marker.read_text())
         if saved["signature"] != signature or digest(a.output / "manifest.csv") != saved["manifest_sha256"]:
             raise ValueError("Existing split differs. Use a new output directory")
-        print("Verified existing 150/19/19 split:", a.output); return
+        print("Verified existing 113/37/38 split:", a.output); return
     if a.output.exists() and any(a.output.iterdir()):
         raise ValueError("Refusing to overwrite a nonempty directory")
     a.output.mkdir(parents=True, exist_ok=True)
@@ -97,8 +116,9 @@ def main(argv=None):
         "class_counts": {name: group.label.value_counts().sort_index().to_dict()
                          for name, group in manifest.groupby("split")},
         "full_test_label_provenance": "Local full_test_split.csv; roster and PHQ threshold verified, external origin not independently verified",
-        "warning": "The original 47-person TEST roster is redistributed. This is a new internal protocol, not an official AVEC TEST result."}, indent=2) + "\n")
-    print(f"Created seed-{a.seed} 150/19/19 manifest:", a.output)
+        'prior_internal_test_preserved': True, 'previous_val_moved_to_train': True,
+        "warning": "This split was chosen after viewing prior VAL results. The original 47-person TEST roster is redistributed; no official AVEC test claim."}, indent=2) + "\n")
+    print(f"Created seed-{a.seed} 113/37/38 manifest:", a.output)
 
 
 if __name__ == "__main__": main()

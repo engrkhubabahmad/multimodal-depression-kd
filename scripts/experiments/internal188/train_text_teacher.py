@@ -1,4 +1,4 @@
-"""Train fresh Idiap participant InducT-GCN on TRAIN-150; evaluate VAL-19."""
+"""Train fresh Idiap participant InducT-GCN on TRAIN-113; evaluate VAL-37."""
 from __future__ import annotations
 import argparse
 import json
@@ -20,7 +20,7 @@ def verified_split(split_dir, coverage_dir):
     if digest(split_dir / 'manifest.csv') != marker['manifest_sha256']:
         raise ValueError('Split manifest changed')
     manifest = pd.read_csv(split_dir / 'manifest.csv')
-    if manifest.split.value_counts().to_dict() != {'train': 150, 'val': 19, 'student_test': 19}:
+    if manifest.split.value_counts().to_dict() != {'train': 113, 'val': 37, 'student_test': 38}:
         raise ValueError('Unexpected split counts')
     covered = pd.read_csv(coverage_dir / 'participant_manifest.csv')
     expected = manifest.loc[manifest.split.isin(['train', 'val'])].sort_values('participant_id')
@@ -209,7 +209,7 @@ def main(argv=None):
                                                       'source_split'].eq('canonical_train'))),
            "clean_holdout_claim_valid": False if transfer else True},
        "graph_settings": {"use_pagerank": False, "window_size": 3, "vocabulary_size": 250},
-       "train_participants": 150, "val_participants": 19, "student_test_opened": False,
+       "train_participants": 113, "val_participants": 37, "student_test_opened": False,
        "oof": False, "best_epoch": state["best_epoch"],
        "train": metric(y, train_prob), "val": metric(vy, val_prob)}, indent=2) + "\n")
     print("Saved fresh text teacher:", args.output)
