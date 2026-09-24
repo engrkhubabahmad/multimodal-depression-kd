@@ -10,7 +10,7 @@ import pandas as pd
 import torch
 from tqdm.auto import tqdm
 from torch.utils.data import DataLoader, Dataset
-from scripts.teachers.ussd_audio.common import CustomComparE16, AUTHOR_RUN4_CHECKPOINT_SHA256
+from scripts.teachers.ussd_audio.common import CustomComparE16, AUTHOR_RUN4_CHECKPOINT_SHA256, load_author_stats
 from .train_text_teacher import verified_split
 from .split import digest
 from .train_text_teacher import metric
@@ -110,6 +110,13 @@ def evaluate(model, frame, indexed, mean, std, device, batch=16):
     return pd.DataFrame(records), np.stack(features)
 
 
+def probability_summary(frame):
+    return {str(label): {'min': float(group.audio_probability.min()),
+                         'median': float(group.audio_probability.median()),
+                         'max': float(group.audio_probability.max())}
+            for label, group in frame.groupby('label')}
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--split-dir", type=Path, required=True)
@@ -122,16 +129,27 @@ def main(argv=None):
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument('--published-checkpoint', type=Path)
+    p.add_argument('--author-root', type=Path,
+                   help='USSD author checkout for pinned run-4 normalization artifact')
     a = p.parse_args(argv)
     if a.seed not in (42, 103) or min(a.epochs, a.patience, a.batch_size) < 1: raise ValueError("Invalid training settings")
     full = verified_split(a.split_dir, a.coverage_dir); indexed = rows_for(a.features, full)
     tr = full.loc[full.split.eq("train")]; va = full.loc[full.split.eq("val")]
+    if bool(a.published_checkpoint) != bool(a.author_root):
+        raise ValueError('Published checkpoint requires --author-root for matched normalization')
+    if a.published_checkpoint:
+        mean, std, normalizer_path = load_author_stats(a.author_root)
+        normalization_sha256 = digest(normalizer_path)
+    else:
+        mean, std = train_stats(tr, indexed)
+        normalization_sha256 = None
     signature = {"split_sha256": digest(a.split_dir / "manifest.csv"),
                  "feature_manifest_sha256": digest(a.features / "participant_manifest.csv"),
                  "seed": a.seed, "epochs": a.epochs, "patience": a.patience,
-                 "batch_size": a.batch_size, "lr": a.lr, "architecture": "fresh USSD CustomComparE16",
+                 "batch_size": a.batch_size, "lr": a.lr, "architecture": "USSD CustomComparE16",
                  "initialization": 'published' if a.published_checkpoint else 'fresh',
                  "published_checkpoint_sha256": digest(a.published_checkpoint) if a.published_checkpoint else None,
+                 "normalization_sha256": normalization_sha256,
                  "training_unit": "participant_mean_probability", "segments_per_participant": 8}
     if a.published_checkpoint and signature['published_checkpoint_sha256'] != AUTHOR_RUN4_CHECKPOINT_SHA256:
         raise ValueError('Published USSD run #4 checkpoint SHA-256 differs from pinned original')
@@ -143,8 +161,7 @@ def main(argv=None):
     a.output.mkdir(parents=True, exist_ok=True)
     random.seed(a.seed); np.random.seed(a.seed); torch.manual_seed(a.seed)
     if torch.cuda.is_available(): torch.cuda.manual_seed_all(a.seed)
-    mean, std = train_stats(tr, indexed)
-    np.savez_compressed(a.output / "train_only_normalization.npz", mean=mean, std=std)
+    np.savez_compressed(a.output / "normalization.npz", mean=mean, std=std)
     if a.batch_size % 8: raise ValueError("batch-size must be a multiple of 8 segments")
     dataset = ParticipantBags(tr, indexed, mean, std, samples=8, seed=a.seed)
     generator = torch.Generator().manual_seed(a.seed)
@@ -161,7 +178,22 @@ def main(argv=None):
         print('Initialized USSD architecture from pinned run #4 checkpoint:', a.published_checkpoint)
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     pos_weight = torch.tensor(float(sum(tr.label == 0) / sum(tr.label == 1)), device=device)
-    best = (-1., -1., -1.); stale = 0; history = []
+    best = (-1., -1., -1.); stale = 0; history = []; epoch_zero = None
+    if a.published_checkpoint:
+        initial_train, _ = evaluate(model, tr, indexed, mean, std, device, a.batch_size)
+        initial_val, _ = evaluate(model, va, indexed, mean, std, device, a.batch_size)
+        initial_train_metric = metric(initial_train.label.to_numpy(int), initial_train.audio_probability.to_numpy(float))
+        initial_val_metric = metric(initial_val.label.to_numpy(int), initial_val.audio_probability.to_numpy(float))
+        epoch_zero = {'train': initial_train_metric, 'val': initial_val_metric,
+                      'train_probability_by_label': probability_summary(initial_train),
+                      'val_probability_by_label': probability_summary(initial_val),
+                      'normalization_sha256': normalization_sha256}
+        best = (initial_val_metric['macro_f1'], initial_val_metric['depressed_f1'], initial_val_metric['auroc'])
+        torch.save({'model_state_dict': model.state_dict(), 'best_epoch': 0,
+                    'signature': signature}, a.output / 'best.pt')
+        print('USSD published epoch 0 TRAIN macroF1=', initial_train_metric['macro_f1'],
+              'VAL macroF1=', initial_val_metric['macro_f1'],
+              'VAL CM=', initial_val_metric['confusion_matrix'], flush=True)
     progress = tqdm(range(1, a.epochs + 1), desc="Audio teacher epochs", unit="epoch")
     for epoch in progress:
         dataset.epoch = epoch; model.train(); losses = []
@@ -205,12 +237,14 @@ def main(argv=None):
         scores_out[name] = metric(result.label.to_numpy(int), result.audio_probability.to_numpy(float))
     (a.output / "audit.json").write_text(json.dumps({"signature": signature,
       "architecture": "USSD CustomComparE16", "previous_checkpoint_loaded": bool(a.published_checkpoint),
+      "normalization_source": 'pinned_author_run4' if a.published_checkpoint else 'new_train_only',
+      "normalization_sha256": normalization_sha256, "epoch_zero": epoch_zero,
       "published_checkpoint_prior_exposure": {
           "original_train_ids_in_val": int(sum(va.source_split.eq('canonical_train'))),
           "original_train_ids_in_internal_test": int(sum(full.loc[full.split.eq('student_test'),
                                                      'source_split'].eq('canonical_train'))),
           "clean_holdout_claim_valid": False if a.published_checkpoint else True},
-      "train_only_normalization": True, "training_unit": "participant", "train_participants": 150, "val_participants": 19,
+      "train_only_normalization": not bool(a.published_checkpoint), "training_unit": "participant", "train_participants": 150, "val_participants": 19,
       "student_test_opened": False, "oof": False, "best_epoch": state["best_epoch"], **scores_out}, indent=2) + "\n")
     print("Saved fresh audio teacher:", a.output)
 
