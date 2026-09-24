@@ -25,7 +25,9 @@ def main(argv=None):
     p.add_argument("--archive-incomplete", action="store_true",
                    help="Move an incomplete stage to failed_attempts before retrying")
     a = p.parse_args([str(value) for value in argv] if argv is not None else None)
-    daic = a.daic_root.resolve()
+    # Keep the MyDrive alias: resolving a Drive shortcut moves us under
+    # .shortcut-targets-by-id, where the sibling MyDrive/tools path does not exist.
+    daic = a.daic_root.expanduser().absolute()
     exp = daic / f"experiments/full188_80_10_10_seed{a.seed}"
     prior = daic / "experiments/full188_seed42/features"
     use_prior = a.seed == 103 and (prior / "provenance.json").is_file() and (prior / "participant_manifest.csv").is_file()

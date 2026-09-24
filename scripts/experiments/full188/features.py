@@ -46,7 +46,7 @@ def main(argv=None):
             x = np.load(path, mmap_mode="r", allow_pickle=False)
             if x.ndim != 2 or x.shape[0] != 130 or x.shape[1] == 0:
                 raise ValueError(f"Invalid cached ComParE16 feature: {path}")
-            if len(old) == 188 and path.is_relative_to(a.canonical_features.resolve()):
+            if len(old) == 188 and path.resolve(strict=True).is_relative_to(a.canonical_features.resolve()):
                 dst = a.output / "cached_original_test" / path.name
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 if not dst.exists(): shutil.copy2(path, dst)

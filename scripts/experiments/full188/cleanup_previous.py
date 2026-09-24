@@ -15,7 +15,7 @@ def main(argv=None):
     p.add_argument("--daic-root", type=Path, required=True)
     p.add_argument("--seed", type=int, default=103)
     a = p.parse_args([str(v) for v in argv] if argv is not None else None)
-    root = a.daic_root.resolve()
+    root = a.daic_root.expanduser().absolute()
     experiments = root / "experiments"
     new = experiments / f"full188_80_10_10_seed{a.seed}"
     old = [experiments / "full188_seed42", experiments / "full188_seed103"]

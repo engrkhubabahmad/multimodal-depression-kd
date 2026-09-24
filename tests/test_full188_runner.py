@@ -26,6 +26,27 @@ class Runner(unittest.TestCase):
                 main(["--daic-root", str(daic), "--stage", "features", "--seed", "42"])
                 copy.assert_not_called()
 
+    def test_my_drive_shortcut_preserves_sibling_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            drive = Path(tmp) / "MyDrive"
+            actual = Path(tmp) / ".shortcut-targets-by-id" / "dataset" / "DAIC_WOZ"
+            actual.mkdir(parents=True)
+            drive.mkdir()
+            alias = drive / "DAIC_WOZ"
+            alias.symlink_to(actual, target_is_directory=True)
+            paths = (
+                actual / "metadata/full_test_split.csv",
+                actual / "metadata/train_split_Depression_AVEC2017.csv",
+                actual / "metadata/dev_split_Depression_AVEC2017.csv",
+                actual / "experiments/ussd_compare16/participant_manifest.csv",
+                actual / "experiments/full188_80_10_10_seed42/features/provenance.json",
+                drive / "tools/solo_teacher_sources/bias_in_daic-woz/main.py",
+            )
+            for path in paths:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.touch()
+            main(["--daic-root", str(alias), "--stage", "features", "--seed", "42"])
+
 
 if __name__ == "__main__":
     unittest.main()
