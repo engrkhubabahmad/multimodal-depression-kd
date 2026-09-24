@@ -23,7 +23,7 @@ class Runner(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.touch()
             with patch("scripts.experiments.full188.run_all.shutil.copytree") as copy:
-                main(["--daic-root", str(daic), "--stage", "features"])
+                main(["--daic-root", str(daic), "--stage", "features", "--seed", "42"])
                 copy.assert_not_called()
 
 

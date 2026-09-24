@@ -53,5 +53,16 @@ class Split188(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'IDs differ'):
                 prepare(root)
 
+    def test_seed103_is_distinct_and_reproducible(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td); self.fixture(root)
+            a, _ = prepare(root, 103)
+            b, _ = prepare(root, 103)
+            baseline, _ = prepare(root, 42)
+            pd.testing.assert_frame_equal(a, b)
+            self.assertEqual(a.split.value_counts().to_dict(),
+                             {'train': 132, 'val': 28, 'student_test': 28})
+            self.assertFalse(a.split.equals(baseline.split))
+
 
 if __name__ == '__main__': unittest.main()

@@ -33,8 +33,8 @@ def main(argv=None):
     old = pd.read_csv(old_path)
     if not {"participant_id", "label", "feature_path"} <= set(old.columns):
         raise ValueError("Canonical feature manifest lacks IDs, labels, or paths")
-    if old.participant_id.duplicated().any() or len(old) != 141 or 440 in set(old.participant_id):
-        raise ValueError("Expected 141 distinct canonical TRAIN+DEV cached participants")
+    if old.participant_id.duplicated().any() or len(old) not in (141, 188) or 440 in set(old.participant_id):
+        raise ValueError("Expected 141 canonical or 188 full-protocol cached participants")
     indexed = old.set_index("participant_id"); reused = []; missing = []
     for r in manifest.itertuples(index=False):
         if r.participant_id in indexed.index:
@@ -51,13 +51,16 @@ def main(argv=None):
         else:
             missing.append({"participant_id": int(r.participant_id), "label": int(r.label),
                             "split": r.split})
-    if len(missing) != 47: raise ValueError(f"Expected 47 missing original TEST features, found {len(missing)}")
+    if len(missing) != 188 - len(old):
+        raise ValueError(f"Unexpected missing feature count: {len(missing)}")
     if not a.compare16_config.is_file(): raise FileNotFoundError(a.compare16_config)
-    smile = resolve_executable(a.smile_extract)
-    # Extract exactly the 47 missing raw recordings, one participant at a time.
     a.output.mkdir(parents=True, exist_ok=True)
-    fresh = process_split(a.daic_root, pd.DataFrame(missing)[["participant_id", "label"]],
-                          "new_original_test", a.output, smile, a.compare16_config, False)
+    fresh = []
+    if missing:
+        smile = resolve_executable(a.smile_extract)
+        # Extract exactly the missing raw recordings, one participant at a time.
+        fresh = process_split(a.daic_root, pd.DataFrame(missing)[["participant_id", "label"]],
+                              "new_original_test", a.output, smile, a.compare16_config, False)
     split_by_id = {r["participant_id"]: r["split"] for r in missing}
     rows = reused + [{"participant_id": r["participant_id"], "label": r["label"],
                        "split": split_by_id[r["participant_id"]], "feature_path": r["feature_path"],

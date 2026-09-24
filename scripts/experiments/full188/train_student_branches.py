@@ -119,9 +119,12 @@ def main(argv=None):
     p.add_argument("--features", type=Path, required=True)
     p.add_argument("--audio-teacher", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--seed", type=int, default=103)
     p.add_argument("--text-epochs", type=int, default=300)
     p.add_argument("--audio-epochs", type=int, default=30)
     a = p.parse_args(argv)
+    if a.seed not in (42, 103): raise ValueError("Supported protocol seeds are 42 and 103")
+    student_seed = 1000 + a.seed
     full = verified_split(a.split_dir)
     indexed = rows_for(a.features, full)
     train = full.loc[full.split.eq("train")].sort_values("participant_id")
@@ -133,7 +136,7 @@ def main(argv=None):
         mean, std = norm["mean"], norm["std"]
     signature = {"split_sha256": digest(a.split_dir / "manifest.csv"),
                  "feature_manifest_sha256": digest(a.features / "participant_manifest.csv"),
-                 "student_seed": 1042, "text_epochs": a.text_epochs, "audio_epochs": a.audio_epochs,
+                 "student_seed": student_seed, "text_epochs": a.text_epochs, "audio_epochs": a.audio_epochs,
                  "normalization_sha256": digest(a.audio_teacher / "train_only_normalization.npz")}
     if a.output.exists() and any(a.output.iterdir()):
         audit = a.output / "audit.json"
@@ -141,10 +144,10 @@ def main(argv=None):
             print("Verified existing student branches:", a.output); return
         raise ValueError("Use a fresh student-branch output directory")
     a.output.mkdir(parents=True, exist_ok=True)
-    random.seed(1042); np.random.seed(1042); torch.manual_seed(1042)
-    if torch.cuda.is_available(): torch.cuda.manual_seed_all(1042)
-    text_report = train_text(a.daic_root, train, val, a.output, 1042, a.text_epochs)
-    audio_report = train_audio(train, val, indexed, mean, std, a.output, 1042, a.audio_epochs)
+    random.seed(student_seed); np.random.seed(student_seed); torch.manual_seed(student_seed)
+    if torch.cuda.is_available(): torch.cuda.manual_seed_all(student_seed)
+    text_report = train_text(a.daic_root, train, val, a.output, student_seed, a.text_epochs)
+    audio_report = train_audio(train, val, indexed, mean, std, a.output, student_seed, a.audio_epochs)
     (a.output / "audit.json").write_text(json.dumps({"signature": signature,
         "teacher_checkpoint_loaded": False, "teacher_features_loaded": False,
         "split_train": 132, "split_val": 28, "student_test_opened": False,

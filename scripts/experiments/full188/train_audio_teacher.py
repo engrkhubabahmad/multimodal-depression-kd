@@ -97,13 +97,13 @@ def main(argv=None):
     p.add_argument("--split-dir", type=Path, required=True)
     p.add_argument("--features", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
-    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--seed", type=int, default=103)
     p.add_argument("--epochs", type=int, default=30)
     p.add_argument("--patience", type=int, default=8)
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument("--lr", type=float, default=1e-3)
     a = p.parse_args(argv)
-    if a.seed != 42 or min(a.epochs, a.patience, a.batch_size) < 1: raise ValueError("Invalid training settings")
+    if a.seed not in (42, 103) or min(a.epochs, a.patience, a.batch_size) < 1: raise ValueError("Invalid training settings")
     full = verified_split(a.split_dir); indexed = rows_for(a.features, full)
     tr = full.loc[full.split.eq("train")]; va = full.loc[full.split.eq("val")]
     signature = {"split_sha256": digest(a.split_dir / "manifest.csv"),

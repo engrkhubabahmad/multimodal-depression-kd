@@ -30,7 +30,7 @@ def table(path, id_name, label_name=None):
     return d
 
 
-def prepare(root, seed=42):
+def prepare(root, seed=103):
     metadata = Path(root) / "metadata"
     paths = {name: metadata / name for name in (
         "train_split_Depression_AVEC2017.csv", "dev_split_Depression_AVEC2017.csv",
@@ -75,11 +75,11 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--daic-root", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=103)
     a = parser.parse_args(argv)
-    if a.seed != 42: raise ValueError("This protocol is fixed to seed 42")
+    if a.seed not in (42, 103): raise ValueError("Supported protocol seeds are 42 and 103")
     manifest, paths = prepare(a.daic_root, a.seed)
-    signature = {"seed": 42, "split": [132, 28, 28],
+    signature = {"seed": a.seed, "split": [132, 28, 28],
                  "source_sha256": {name: digest(path) for name, path in paths.items()},
                  "code_sha256": digest(Path(__file__))}
     marker = a.output / "complete.json"
@@ -98,7 +98,7 @@ def main(argv=None):
                          for name, group in manifest.groupby("split")},
         "full_test_label_provenance": "Local full_test_split.csv; roster and PHQ threshold verified, external origin not independently verified",
         "warning": "The original 47-person TEST roster is redistributed. This is a new internal protocol, not an official AVEC TEST result."}, indent=2) + "\n")
-    print("Created seed-42 132/28/28 manifest:", a.output)
+    print(f"Created seed-{a.seed} 132/28/28 manifest:", a.output)
 
 
 if __name__ == "__main__": main()

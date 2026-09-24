@@ -47,13 +47,13 @@ def main(argv=None):
     a.add_argument("--split-dir", type=Path, required=True)
     a.add_argument("--idiap-source", type=Path, required=True)
     a.add_argument("--output", type=Path, required=True)
-    a.add_argument("--seed", type=int, default=42)
+    a.add_argument("--seed", type=int, default=103)
     a.add_argument("--epochs", type=int, default=300)
     a.add_argument("--eval-every", type=int, default=10)
     a.add_argument("--lr", type=float, default=1e-3)
     a.add_argument("--patience-evals", type=int, default=25)
     args = a.parse_args(argv)
-    if args.seed != 42 or args.epochs < 1 or args.eval_every < 1: raise ValueError("Invalid fixed protocol settings")
+    if args.seed not in (42, 103) or args.epochs < 1 or args.eval_every < 1: raise ValueError("Invalid protocol settings")
     manifest = verified_split(args.split_dir)
     tr = manifest.loc[manifest.split.eq("train")].sort_values("participant_id")
     va = manifest.loc[manifest.split.eq("val")].sort_values("participant_id")
@@ -62,7 +62,7 @@ def main(argv=None):
     train_docs = [docs[int(pid)] for pid in tr.participant_id]
     val_docs = [docs[int(pid)] for pid in va.participant_id]
     y = tr.label.to_numpy(int); vy = va.label.to_numpy(int)
-    signature = {"seed": 42, "epochs": args.epochs, "eval_every": args.eval_every,
+    signature = {"seed": args.seed, "epochs": args.epochs, "eval_every": args.eval_every,
                  "lr": args.lr, "patience_evals": args.patience_evals,
                  "use_pagerank": False,
                  "split_sha256": digest(args.split_dir / "manifest.csv"),

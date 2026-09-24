@@ -1,6 +1,7 @@
 """Run the full-188 protocol in ordered, resumable Colab stages."""
 import argparse
 import importlib
+import json
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,13 +20,16 @@ def required(path):
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--daic-root", type=Path, default=Path("/content/drive/MyDrive/DAIC_WOZ"))
+    p.add_argument("--seed", type=int, choices=(42, 103), default=103)
     p.add_argument("--stage", choices=("all", *STAGES), default="all")
     p.add_argument("--archive-incomplete", action="store_true",
                    help="Move an incomplete stage to failed_attempts before retrying")
     a = p.parse_args(argv)
     daic = a.daic_root.resolve()
-    exp = daic / "experiments/full188_seed42"
-    cache = daic / "experiments/ussd_compare16"
+    exp = daic / f"experiments/full188_seed{a.seed}"
+    prior = daic / "experiments/full188_seed42/features"
+    use_prior = a.seed == 103 and (prior / "provenance.json").is_file() and (prior / "participant_manifest.csv").is_file()
+    cache = prior if use_prior else daic / "experiments/ussd_compare16"
     tools = daic.parent / "tools"
     idiap = tools / "solo_teacher_sources/bias_in_daic-woz"
     smile_drive = tools / "opensmile-3.0.2-linux-x86_64"
@@ -36,7 +40,7 @@ def main(argv=None):
                  daic / "metadata/dev_split_Depression_AVEC2017.csv",
                  cache / "participant_manifest.csv", idiap / "main.py"):
         required(path)
-    needs_extraction = a.stage in ("all", "features") and not (exp / "features/provenance.json").is_file()
+    needs_extraction = a.stage in ("all", "features") and not (exp / "features/provenance.json").is_file() and not use_prior
     if needs_extraction:
         if not smile_local.exists():
             if not smile_drive.is_dir():
@@ -47,7 +51,7 @@ def main(argv=None):
         binary = required(smile_local / "bin/SMILExtract")
         binary.chmod(binary.stat().st_mode | 0o111)
     else:
-        config = smile_local / "config/compare16/ComParE_2016.conf"
+        config = smile_drive / "config/compare16/ComParE_2016.conf" if use_prior else smile_local / "config/compare16/ComParE_2016.conf"
         binary = smile_local / "bin/SMILExtract"
 
     split = exp / "split"
@@ -57,25 +61,27 @@ def main(argv=None):
     branches = exp / "students/branches"
     fusion = exp / "students/fusion"
     specs = {
-        "split": (split, "complete.json", ["--daic-root", daic, "--output", split, "--seed", 42]),
+        "split": (split, "complete.json", ["--daic-root", daic, "--output", split, "--seed", a.seed]),
         "features": (features, "provenance.json", ["--split-dir", split, "--daic-root", daic,
                      "--canonical-features", cache, "--output", features,
                      "--compare16-config", config, "--smile-extract", binary]),
         "train_text_teacher": (text_teacher, "audit.json", ["--daic-root", daic,
-                               "--split-dir", split, "--idiap-source", idiap, "--output", text_teacher]),
+                               "--split-dir", split, "--idiap-source", idiap, "--output", text_teacher, "--seed", a.seed]),
         "train_audio_teacher": (audio_teacher, "audit.json", ["--split-dir", split,
-                                "--features", features, "--output", audio_teacher, "--batch-size", 16]),
+                                "--features", features, "--output", audio_teacher, "--batch-size", 16, "--seed", a.seed]),
         "train_student_branches": (branches, "audit.json", ["--daic-root", daic,
                                    "--split-dir", split, "--features", features,
-                                   "--audio-teacher", audio_teacher, "--output", branches]),
+                                   "--audio-teacher", audio_teacher, "--output", branches, "--seed", a.seed]),
         "train_student_fusion": (fusion, "audit.json", ["--split-dir", split,
                                  "--student-branches", branches, "--text-teacher", text_teacher,
-                                 "--audio-teacher", audio_teacher, "--output", fusion]),
+                                 "--audio-teacher", audio_teacher, "--output", fusion, "--seed", a.seed]),
     }
     exp.mkdir(parents=True, exist_ok=True)
     for name in (STAGES if a.stage == "all" else (a.stage,)):
         output, marker, args = specs[name]
         if (output / marker).is_file():
+            if name == "split" and json.loads((output / marker).read_text())["signature"]["seed"] != a.seed:
+                raise ValueError("Completed split belongs to another seed")
             print(f"{name}: complete, skipped ({output})", flush=True)
             continue
         if output.exists() and any(output.iterdir()):

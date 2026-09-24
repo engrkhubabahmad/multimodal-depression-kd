@@ -76,9 +76,11 @@ def main(argv=None):
     p.add_argument("--text-teacher", type=Path, required=True)
     p.add_argument("--audio-teacher", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--seed", type=int, default=103)
     p.add_argument("--epochs", type=int, default=80)
     p.add_argument("--patience", type=int, default=20)
     a = p.parse_args(argv)
+    if a.seed not in (42, 103): raise ValueError("Supported protocol seeds are 42 and 103")
     full = verified_split(a.split_dir)
     tr = full.loc[full.split.eq("train")].sort_values("participant_id")
     va = full.loc[full.split.eq("val")].sort_values("participant_id")
@@ -102,7 +104,7 @@ def main(argv=None):
         a.student_branches / "train_text_embeddings.npz", a.student_branches / "val_text_embeddings.npz",
         a.text_teacher / "train_text_targets.csv", a.audio_teacher / "train_audio_targets.csv")}
     signature = {"split_sha256": expected_sha, "source_sha256": source,
-                 "epochs": a.epochs, "patience": a.patience, "seed": 42,
+                 "epochs": a.epochs, "patience": a.patience, "seed": a.seed,
                  "temperature": 2., "kd_weight": .5, "threshold": .5}
     if a.output.exists() and any(a.output.iterdir()):
         audit = a.output / "audit.json"
@@ -119,15 +121,15 @@ def main(argv=None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     result = {}; robustness = []
     for mode, soft in (("no_kd", None), ("standard_kd", standard), ("ra_kd", ra)):
-        random.seed(42); np.random.seed(42); torch.manual_seed(42)
-        if torch.cuda.is_available(): torch.cuda.manual_seed_all(42)
+        random.seed(a.seed); np.random.seed(a.seed); torch.manual_seed(a.seed)
+        if torch.cuda.is_available(): torch.cuda.manual_seed_all(a.seed)
         model = FrozenBranchFusion().to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=2e-4, weight_decay=5e-4)
         pos = torch.tensor(float(sum(tr.label == 0) / sum(tr.label == 1)), device=device)
         dataset = TensorDataset(torch.from_numpy(A), torch.from_numpy(T),
                                 torch.from_numpy(tr.label.to_numpy(np.float32)),
                                 torch.from_numpy(np.asarray(soft if soft is not None else np.zeros(len(tr)), np.float32)))
-        loader = DataLoader(dataset, batch_size=8, shuffle=True, generator=torch.Generator().manual_seed(42))
+        loader = DataLoader(dataset, batch_size=8, shuffle=True, generator=torch.Generator().manual_seed(a.seed))
         best = (-1., -1., -1.); stale = 0
         progress = tqdm(range(1, a.epochs + 1), desc=f"{mode} epochs", unit="epoch")
         for epoch in progress:
@@ -167,7 +169,7 @@ def main(argv=None):
             is_noise = scenario.startswith("noise")
             for severity in ((.5, 1.) if is_noise else (0.,)):
                 for repeat in range(20 if is_noise else 1):
-                    rng = np.random.default_rng(np.random.SeedSequence([42, si, int(severity * 10), repeat]))
+                    rng = np.random.default_rng(np.random.SeedSequence([a.seed, si, int(severity * 10), repeat]))
                     av, tv = perturb(V, W, scenario, severity, rng)
                     m = metric(va.label.to_numpy(int), predict(model, av, tv, device))
                     robustness.append({"mode": mode, "scenario": scenario, "noise_sd": severity,
