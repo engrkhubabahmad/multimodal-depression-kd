@@ -59,6 +59,35 @@ def metric(y, p):
                     target_names=["Non-depressed", "Depressed"], output_dict=True, zero_division=0)}
 
 
+def initialize_from_published(model, new_vectorizer, checkpoint_path, vectorizer_path):
+    """Copy compatible learned layers, remapping input columns by vocabulary token."""
+    with vectorizer_path.open('rb') as f: old_vectorizer = pickle.load(f)
+    checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+    if list(checkpoint['classes_']) != ['negative', 'positive']:
+        raise ValueError('Published class ordering differs')
+    weights = checkpoint['model_state_dict']
+    source_input = weights['get_H_1.0.weight']
+    source_output = weights['node_emb2out.weight']
+    input_layer = model.get_H_1[0].weight
+    output_layer = model.node_emb2out.weight
+    if (source_input.shape[0] != input_layer.shape[0] or
+            source_output.shape != output_layer.shape or
+            source_input.shape[1] != len(old_vectorizer.vocabulary_)):
+        raise ValueError('Published checkpoint architecture incompatible with new graph')
+    shared = sorted(set(old_vectorizer.vocabulary_) & set(new_vectorizer.vocabulary_))
+    if not shared: raise ValueError('No shared vocabulary tokens for weight transfer')
+    with torch.no_grad():
+        for token in shared:
+            input_layer[:, new_vectorizer.vocabulary_[token]].copy_(
+                source_input[:, old_vectorizer.vocabulary_[token]])
+        output_layer.copy_(source_output)
+    return {'shared_vocabulary_tokens': len(shared),
+            'new_vocabulary_tokens': len(new_vectorizer.vocabulary_),
+            'copied_layers': ['get_H_1.0.weight (shared token columns)', 'node_emb2out.weight'],
+            'checkpoint_sha256': digest(checkpoint_path),
+            'published_vectorizer_sha256': digest(vectorizer_path)}
+
+
 def main(argv=None):
     a = argparse.ArgumentParser(description=__doc__)
     a.add_argument("--daic-root", type=Path, required=True)
@@ -66,12 +95,16 @@ def main(argv=None):
     a.add_argument("--coverage-dir", type=Path, required=True)
     a.add_argument("--idiap-source", type=Path, required=True)
     a.add_argument("--output", type=Path, required=True)
+    a.add_argument('--published-checkpoint', type=Path)
+    a.add_argument('--published-vectorizer', type=Path)
     a.add_argument("--seed", type=int, default=103)
     a.add_argument("--epochs", type=int, default=300)
     a.add_argument("--eval-every", type=int, default=1)
     a.add_argument("--lr", type=float, default=1e-3)
     a.add_argument("--patience-evals", type=int, default=25)
     args = a.parse_args(argv)
+    if bool(args.published_checkpoint) != bool(args.published_vectorizer):
+        raise ValueError('Published checkpoint and vectorizer must both be supplied')
     if args.seed not in (42, 103) or args.epochs < 1 or args.eval_every != 1: raise ValueError("This protocol evaluates every epoch")
     manifest = verified_split(args.split_dir, args.coverage_dir)
     tr = manifest.loc[manifest.split.eq("train")].sort_values("participant_id")
@@ -87,6 +120,9 @@ def main(argv=None):
     y = tr.label.to_numpy(int); vy = va.label.to_numpy(int)
     signature = {"seed": args.seed, "epochs": args.epochs, "eval_every": args.eval_every,
                  "lr": args.lr, "patience_evals": args.patience_evals,
+                 "initialization": 'published_transfer' if args.published_checkpoint else 'fresh',
+                 "checkpoint_sha256": digest(args.published_checkpoint) if args.published_checkpoint else None,
+                 "published_vectorizer_sha256": digest(args.published_vectorizer) if args.published_vectorizer else None,
                  "use_pagerank": False,
                  "split_sha256": digest(args.split_dir / "manifest.csv"),
                  "coverage_sha256": digest(args.coverage_dir / 'participant_manifest.csv'),
@@ -111,6 +147,9 @@ def main(argv=None):
     author.DEVICE = device
     model = author.InducTGCN(64, np.array(["negative", "positive"]), .5, vectorizer)
     model.build_graph(train_docs, window_size=3, verbose=True)
+    transfer = (initialize_from_published(model, vectorizer, args.published_checkpoint,
+                                         args.published_vectorizer) if args.published_checkpoint else None)
+    if transfer: print('Published weight transfer:', transfer)
     model.to(device)
     weight = torch.tensor([len(y) / (2 * sum(y == 0)), len(y) / (2 * sum(y == 1))],
                           dtype=torch.float32, device=device)
@@ -162,7 +201,13 @@ def main(argv=None):
                             participant_ids=frame.participant_id.to_numpy(int), labels=frame.label.to_numpy(int),
                             embedding=embedding, probability=p)
     with (args.output / "vectorizer.pkl").open("wb") as f: pickle.dump(vectorizer, f)
-    (args.output / "audit.json").write_text(json.dumps({"signature": signature, "architecture": "fresh Idiap InducT-GCN",
+    (args.output / "audit.json").write_text(json.dumps({"signature": signature, "architecture": "Idiap InducT-GCN with rebuilt TRAIN graph",
+       "initialization": transfer or 'random',
+       "published_checkpoint_prior_exposure": {
+           "original_train_ids_in_val": int(sum(va.source_split.eq('canonical_train'))),
+           "original_train_ids_in_internal_test": int(sum(manifest.loc[manifest.split.eq('student_test'),
+                                                      'source_split'].eq('canonical_train'))),
+           "clean_holdout_claim_valid": False if transfer else True},
        "graph_settings": {"use_pagerank": False, "window_size": 3, "vocabulary_size": 250},
        "train_participants": 150, "val_participants": 19, "student_test_opened": False,
        "oof": False, "best_epoch": state["best_epoch"],
