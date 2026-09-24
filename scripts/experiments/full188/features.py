@@ -6,7 +6,6 @@ import shutil
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from scripts.teachers.ussd_audio.prepare_compare16 import process_split, resolve_executable
 from .split import digest
 
 
@@ -61,10 +60,19 @@ def main(argv=None):
                             "split": r.split})
     if len(missing) != 188 - len(old):
         raise ValueError(f"Unexpected missing feature count: {len(missing)}")
-    if not a.compare16_config.is_file(): raise FileNotFoundError(a.compare16_config)
+    if missing:
+        if not a.compare16_config.is_file(): raise FileNotFoundError(a.compare16_config)
+        config_sha256 = digest(a.compare16_config)
+    else:
+        # All arrays already exist. No OpenSMILE executable or config is needed
+        # for copying and verifying the cache from the previous experiment.
+        previous = a.canonical_features / "provenance.json"
+        if not previous.is_file(): raise FileNotFoundError(previous)
+        config_sha256 = json.loads(previous.read_text())["compare16_config_sha256"]
     a.output.mkdir(parents=True, exist_ok=True)
     fresh = []
     if missing:
+        from scripts.teachers.ussd_audio.prepare_compare16 import process_split, resolve_executable
         smile = resolve_executable(a.smile_extract)
         # Extract exactly the missing raw recordings, one participant at a time.
         fresh = process_split(a.daic_root, pd.DataFrame(missing)[["participant_id", "label"]],
@@ -84,7 +92,7 @@ def main(argv=None):
     (a.output / "provenance.json").write_text(json.dumps({
         "split_manifest_sha256": digest(a.split_dir / "manifest.csv"),
         "canonical_feature_manifest_sha256": digest(old_path),
-        "compare16_config_sha256": digest(a.compare16_config),
+        "compare16_config_sha256": config_sha256,
         "reuse_count": len(reused), "fresh_count": len(fresh), "copied_to_independent_cache": copied,
         "note": "Feature extraction is label-independent. No learned normalization reused; trainers fit it on TRAIN-132."}, indent=2) + "\n")
     print("Verified full-188 features: reused", len(reused), "extracted", len(fresh))
