@@ -36,7 +36,8 @@ def main(argv=None):
                  daic / "metadata/dev_split_Depression_AVEC2017.csv",
                  cache / "participant_manifest.csv", idiap / "main.py"):
         required(path)
-    if a.stage in ("all", "features"):
+    needs_extraction = a.stage in ("all", "features") and not (exp / "features/provenance.json").is_file()
+    if needs_extraction:
         if not smile_local.exists():
             if not smile_drive.is_dir():
                 raise FileNotFoundError(f"OpenSMILE release missing: {smile_drive}")
