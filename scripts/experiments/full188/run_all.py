@@ -26,7 +26,7 @@ def main(argv=None):
                    help="Move an incomplete stage to failed_attempts before retrying")
     a = p.parse_args([str(value) for value in argv] if argv is not None else None)
     daic = a.daic_root.resolve()
-    exp = daic / f"experiments/full188_seed{a.seed}"
+    exp = daic / f"experiments/full188_80_10_10_seed{a.seed}"
     prior = daic / "experiments/full188_seed42/features"
     use_prior = a.seed == 103 and (prior / "provenance.json").is_file() and (prior / "participant_manifest.csv").is_file()
     cache = prior if use_prior else daic / "experiments/ussd_compare16"

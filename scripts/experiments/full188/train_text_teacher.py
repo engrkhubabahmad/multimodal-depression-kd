@@ -1,4 +1,4 @@
-"""Fresh Idiap InducT-GCN architecture on the full-188 TRAIN-132 split."""
+"""Fresh Idiap InducT-GCN architecture on the full-188 TRAIN-150 split."""
 from __future__ import annotations
 import argparse
 import json
@@ -49,11 +49,11 @@ def main(argv=None):
     a.add_argument("--output", type=Path, required=True)
     a.add_argument("--seed", type=int, default=103)
     a.add_argument("--epochs", type=int, default=300)
-    a.add_argument("--eval-every", type=int, default=10)
+    a.add_argument("--eval-every", type=int, default=1)
     a.add_argument("--lr", type=float, default=1e-3)
     a.add_argument("--patience-evals", type=int, default=25)
     args = a.parse_args(argv)
-    if args.seed not in (42, 103) or args.epochs < 1 or args.eval_every < 1: raise ValueError("Invalid protocol settings")
+    if args.seed not in (42, 103) or args.epochs < 1 or args.eval_every != 1: raise ValueError("This protocol evaluates every epoch")
     manifest = verified_split(args.split_dir)
     tr = manifest.loc[manifest.split.eq("train")].sort_values("participant_id")
     va = manifest.loc[manifest.split.eq("val")].sort_values("participant_id")
@@ -98,14 +98,21 @@ def main(argv=None):
         model.train(); optimizer.zero_grad(set_to_none=True)
         loss = model.cross_entropy_loss_on_document_nodes(target, class_weight=weight)
         loss.backward(); optimizer.step()
-        if epoch % args.eval_every != 0 and epoch != args.epochs: continue
-        words = model.H_1_words.detach().clone()
         model.eval()
+        with torch.inference_mode():
+            h = model.get_H_1(model.Conv_0.to(device))
+            train_logits = model.node_emb2out(model.A_norm.to(device) @ h)[len(vectorizer.vocabulary_):]
+            train_prob_epoch = torch.softmax(train_logits, dim=1)[:, 1].cpu().numpy()
+            words = h[:len(vectorizer.vocabulary_)].detach().clone().cpu()
         _, prob = inductive(model, vectorizer, val_docs, words)
+        tm = metric(y, train_prob_epoch)
         m = metric(vy, prob); key = (m["macro_f1"], m["depressed_f1"], m["auroc"])
-        progress.set_postfix(val_macro_f1=f"{m['macro_f1']:.3f}")
-        history.append({"epoch": epoch, "loss": float(loss.detach().cpu()), **m})
-        print(f"Text epoch {epoch}/{args.epochs} val macroF1={m['macro_f1']:.4f} depressedF1={m['depressed_f1']:.4f}")
+        progress.set_postfix(train_f1=f"{tm['macro_f1']:.3f}", val_f1=f"{m['macro_f1']:.3f}")
+        history.append({"epoch": epoch, "loss": float(loss.detach().cpu()),
+                        "train_macro_f1": tm["macro_f1"], "train_depressed_f1": tm["depressed_f1"],
+                        "val_macro_f1": m["macro_f1"], "val_depressed_f1": m["depressed_f1"],
+                        "val_auroc": m["auroc"]})
+        print(f"Text epoch {epoch}/{args.epochs} train macroF1={tm['macro_f1']:.4f} val macroF1={m['macro_f1']:.4f} val depressedF1={m['depressed_f1']:.4f}")
         if key > best:
             best = key; stale = 0
             torch.save({"model_state_dict": model.state_dict(), "word_state": words.cpu(),
@@ -133,7 +140,7 @@ def main(argv=None):
     with (args.output / "vectorizer.pkl").open("wb") as f: pickle.dump(vectorizer, f)
     (args.output / "audit.json").write_text(json.dumps({"signature": signature, "architecture": "fresh Idiap InducT-GCN",
        "graph_settings": {"use_pagerank": False, "window_size": 3, "vocabulary_size": 250},
-       "train_participants": 132, "val_participants": 28, "student_test_opened": False,
+       "train_participants": 150, "val_participants": 19, "student_test_opened": False,
        "oof": False, "best_epoch": state["best_epoch"],
        "train": metric(y, train_prob), "val": metric(vy, val_prob)}, indent=2) + "\n")
     print("Saved fresh text teacher:", args.output)

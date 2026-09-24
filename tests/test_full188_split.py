@@ -29,7 +29,7 @@ class Split188(unittest.TestCase):
             first, _ = prepare(root)
             second, _ = prepare(root)
             pd.testing.assert_frame_equal(first, second)
-            self.assertEqual(first.split.value_counts().to_dict(), {'train': 132, 'val': 28, 'student_test': 28})
+            self.assertEqual(first.split.value_counts().to_dict(), {'train': 150, 'val': 19, 'student_test': 19})
             self.assertEqual(first.participant_id.nunique(), 188)
             self.assertNotIn(440, first.participant_id.values)
             out = root / 'experiment'
@@ -61,7 +61,7 @@ class Split188(unittest.TestCase):
             baseline, _ = prepare(root, 42)
             pd.testing.assert_frame_equal(a, b)
             self.assertEqual(a.split.value_counts().to_dict(),
-                             {'train': 132, 'val': 28, 'student_test': 28})
+                             {'train': 150, 'val': 19, 'student_test': 19})
             self.assertFalse(a.split.equals(baseline.split))
 
 

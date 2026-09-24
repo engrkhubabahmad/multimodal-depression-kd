@@ -150,7 +150,7 @@ def main(argv=None):
     audio_report = train_audio(train, val, indexed, mean, std, a.output, student_seed, a.audio_epochs)
     (a.output / "audit.json").write_text(json.dumps({"signature": signature,
         "teacher_checkpoint_loaded": False, "teacher_features_loaded": False,
-        "split_train": 132, "split_val": 28, "student_test_opened": False,
+        "split_train": 150, "split_val": 19, "student_test_opened": False,
         "text": text_report, "audio": audio_report}, indent=2) + "\n")
     print("Saved independently trained student branches:", a.output)
 

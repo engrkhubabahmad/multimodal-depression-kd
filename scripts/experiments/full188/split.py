@@ -1,4 +1,4 @@
-"""Create a stratified 132/28/28 participant split from verified labeled metadata."""
+"""Create a stratified 150/19/19 participant split from verified labeled metadata."""
 from __future__ import annotations
 import argparse
 import hashlib
@@ -59,14 +59,14 @@ def prepare(root, seed=103):
     combined = pd.concat([d.assign(source_split=name) for name, d in groups.items()], ignore_index=True)
     if len(combined) != 188 or 440 in set(combined.participant_id):
         raise ValueError("Expected 188 usable labeled participants excluding 440")
-    first, remain = train_test_split(combined, train_size=132, random_state=seed,
+    first, remain = train_test_split(combined, train_size=150, random_state=seed,
                                      stratify=combined.label)
-    val, student_test = train_test_split(remain, train_size=28, random_state=seed,
+    val, student_test = train_test_split(remain, train_size=19, random_state=seed,
                                          stratify=remain.label)
     parts = [d.assign(split=name) for name, d in
              (("train", first), ("val", val), ("student_test", student_test))]
     result = pd.concat(parts).sort_values("participant_id").reset_index(drop=True)
-    if result.split.value_counts().to_dict() != {"train": 132, "val": 28, "student_test": 28}:
+    if result.split.value_counts().to_dict() != {"train": 150, "val": 19, "student_test": 19}:
         raise ValueError("Split sizes changed")
     return result, paths
 
@@ -79,7 +79,7 @@ def main(argv=None):
     a = parser.parse_args(argv)
     if a.seed not in (42, 103): raise ValueError("Supported protocol seeds are 42 and 103")
     manifest, paths = prepare(a.daic_root, a.seed)
-    signature = {"seed": a.seed, "split": [132, 28, 28],
+    signature = {"seed": a.seed, "split": [150, 19, 19],
                  "source_sha256": {name: digest(path) for name, path in paths.items()},
                  "code_sha256": digest(Path(__file__))}
     marker = a.output / "complete.json"
@@ -87,7 +87,7 @@ def main(argv=None):
         saved = json.loads(marker.read_text())
         if saved["signature"] != signature or digest(a.output / "manifest.csv") != saved["manifest_sha256"]:
             raise ValueError("Existing split differs. Use a new output directory")
-        print("Verified existing 132/28/28 split:", a.output); return
+        print("Verified existing 150/19/19 split:", a.output); return
     if a.output.exists() and any(a.output.iterdir()):
         raise ValueError("Refusing to overwrite a nonempty directory")
     a.output.mkdir(parents=True, exist_ok=True)
@@ -98,7 +98,7 @@ def main(argv=None):
                          for name, group in manifest.groupby("split")},
         "full_test_label_provenance": "Local full_test_split.csv; roster and PHQ threshold verified, external origin not independently verified",
         "warning": "The original 47-person TEST roster is redistributed. This is a new internal protocol, not an official AVEC TEST result."}, indent=2) + "\n")
-    print(f"Created seed-{a.seed} 132/28/28 manifest:", a.output)
+    print(f"Created seed-{a.seed} 150/19/19 manifest:", a.output)
 
 
 if __name__ == "__main__": main()

@@ -1,4 +1,4 @@
-"""Score exactly one frozen student mode on the 28-person internal test."""
+"""Score exactly one frozen student mode on the 19-person internal test."""
 from __future__ import annotations
 import argparse
 import json
@@ -78,7 +78,7 @@ def main(argv=None):
                   "label": test.label.to_numpy(int), "probability": prob,
                   "prediction": (prob >= .5).astype(int)}).to_csv(a.output / "student_test_predictions.csv", index=False)
     (a.output / "result.json").write_text(json.dumps({"selection": selected,
-        "internal_test_n": 28, "teacher_inference_on_test": False,
+        "internal_test_n": 19, "teacher_inference_on_test": False,
         "canonical_avec_test": False, "metrics": result}, indent=2) + "\n")
     (a.output / "complete.json").write_text(json.dumps({"selection": selected,
         "split_sha256": expected_sha,

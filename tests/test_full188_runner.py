@@ -17,7 +17,7 @@ class Runner(unittest.TestCase):
                 daic / "metadata/dev_split_Depression_AVEC2017.csv",
                 daic / "experiments/ussd_compare16/participant_manifest.csv",
                 daic.parent / "tools/solo_teacher_sources/bias_in_daic-woz/main.py",
-                daic / "experiments/full188_seed42/features/provenance.json",
+                daic / "experiments/full188_80_10_10_seed42/features/provenance.json",
             )
             for path in paths:
                 path.parent.mkdir(parents=True, exist_ok=True)

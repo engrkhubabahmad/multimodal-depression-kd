@@ -1,4 +1,4 @@
-"""Fresh USSD ComParE16+LSTM architecture on TRAIN-132; export in-sample KD targets."""
+"""Fresh USSD ComParE16+LSTM architecture on TRAIN-150; export in-sample KD targets."""
 from __future__ import annotations
 import argparse
 import json
@@ -64,6 +64,23 @@ class Segments(Dataset):
         return torch.from_numpy(((block - self.mean) / self.std).astype(np.float32)), torch.tensor(float(row.label))
 
 
+class ParticipantBags(Segments):
+    """One participant per item; sample segments across the entire recording."""
+    def __len__(self): return len(self.rows)
+
+    def __getitem__(self, index):
+        row = self.rows.iloc[index]; pid = int(row.participant_id)
+        x = np.load(self.indexed.loc[pid, "feature_path"], mmap_mode="r", allow_pickle=False)
+        nseg = math.ceil(x.shape[1] / FRAMES)
+        rng = np.random.default_rng(np.random.SeedSequence([self.seed, self.epoch, pid]))
+        blocks = np.zeros((self.samples, 130, FRAMES), np.float32)
+        for j in range(self.samples):
+            segment = min(int((j + rng.random()) * nseg / self.samples), nseg - 1)
+            part = np.asarray(x[:, segment * FRAMES:(segment + 1) * FRAMES], np.float32)
+            blocks[j, :, :part.shape[1]] = part
+        return torch.from_numpy(((blocks - self.mean[None]) / self.std[None]).astype(np.float32)), torch.tensor(float(row.label))
+
+
 def evaluate(model, frame, indexed, mean, std, device, batch=16):
     model.eval(); records = []; features = []
     with torch.inference_mode():
@@ -101,7 +118,7 @@ def main(argv=None):
     p.add_argument("--epochs", type=int, default=30)
     p.add_argument("--patience", type=int, default=8)
     p.add_argument("--batch-size", type=int, default=16)
-    p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--lr", type=float, default=3e-4)
     a = p.parse_args(argv)
     if a.seed not in (42, 103) or min(a.epochs, a.patience, a.batch_size) < 1: raise ValueError("Invalid training settings")
     full = verified_split(a.split_dir); indexed = rows_for(a.features, full)
@@ -109,7 +126,8 @@ def main(argv=None):
     signature = {"split_sha256": digest(a.split_dir / "manifest.csv"),
                  "feature_manifest_sha256": digest(a.features / "participant_manifest.csv"),
                  "seed": a.seed, "epochs": a.epochs, "patience": a.patience,
-                 "batch_size": a.batch_size, "lr": a.lr, "architecture": "fresh USSD CustomComparE16"}
+                 "batch_size": a.batch_size, "lr": a.lr, "architecture": "fresh USSD CustomComparE16",
+                 "training_unit": "participant_mean_probability", "segments_per_participant": 8}
     if a.output.exists() and any(a.output.iterdir()):
         audit = a.output / "audit.json"
         if audit.is_file() and json.loads(audit.read_text()).get("signature") == signature:
@@ -120,32 +138,39 @@ def main(argv=None):
     if torch.cuda.is_available(): torch.cuda.manual_seed_all(a.seed)
     mean, std = train_stats(tr, indexed)
     np.savez_compressed(a.output / "train_only_normalization.npz", mean=mean, std=std)
-    dataset = Segments(tr, indexed, mean, std, seed=a.seed)
+    if a.batch_size % 8: raise ValueError("batch-size must be a multiple of 8 segments")
+    dataset = ParticipantBags(tr, indexed, mean, std, samples=8, seed=a.seed)
     generator = torch.Generator().manual_seed(a.seed)
-    loader = DataLoader(dataset, batch_size=a.batch_size, shuffle=True, generator=generator,
+    loader = DataLoader(dataset, batch_size=a.batch_size // 8, shuffle=True, generator=generator,
                         num_workers=0, pin_memory=torch.cuda.is_available())
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = CustomComparE16().to(device)  # random initialization: no old canonical weights
     opt = torch.optim.Adam(model.parameters(), lr=a.lr)
     pos_weight = torch.tensor(float(sum(tr.label == 0) / sum(tr.label == 1)), device=device)
-    loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     best = (-1., -1., -1.); stale = 0; history = []
     progress = tqdm(range(1, a.epochs + 1), desc="Audio teacher epochs", unit="epoch")
     for epoch in progress:
         dataset.epoch = epoch; model.train(); losses = []
         for x, y in loader:
             x, y = x.to(device), y.to(device)
-            logits, _, _ = model.forward_logits(x)
-            loss = loss_fn(logits, y)
+            _, probabilities, _ = model.forward_logits(x.flatten(0, 1))
+            participant_prob = probabilities.view(len(y), dataset.samples).mean(1).clamp(1e-5, 1 - 1e-5)
+            loss = torch.nn.functional.binary_cross_entropy(
+                participant_prob, y, weight=torch.where(y > 0, pos_weight, 1.))
             opt.zero_grad(set_to_none=True); loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
             opt.step(); losses.append(float(loss.detach().cpu()))
+        train_result, _ = evaluate(model, tr, indexed, mean, std, device, a.batch_size)
         result, _ = evaluate(model, va, indexed, mean, std, device, a.batch_size)
+        tm = metric(train_result.label.to_numpy(int), train_result.audio_probability.to_numpy(float))
         m = metric(result.label.to_numpy(int), result.audio_probability.to_numpy(float))
         key = (m["macro_f1"], m["depressed_f1"], m["auroc"])
-        progress.set_postfix(val_macro_f1=f"{m['macro_f1']:.3f}")
-        history.append({"epoch": epoch, "loss": float(np.mean(losses)), **m})
-        print(f"Audio epoch {epoch}/{a.epochs} val macroF1={m['macro_f1']:.4f} depressedF1={m['depressed_f1']:.4f}")
+        progress.set_postfix(train_f1=f"{tm['macro_f1']:.3f}", val_f1=f"{m['macro_f1']:.3f}")
+        history.append({"epoch": epoch, "loss": float(np.mean(losses)),
+                        "train_macro_f1": tm["macro_f1"], "train_depressed_f1": tm["depressed_f1"],
+                        "val_macro_f1": m["macro_f1"], "val_depressed_f1": m["depressed_f1"],
+                        "val_auroc": m["auroc"]})
+        print(f"Audio epoch {epoch}/{a.epochs} train macroF1={tm['macro_f1']:.4f} val macroF1={m['macro_f1']:.4f} val depressedF1={m['depressed_f1']:.4f}")
         if key > best:
             best = key; stale = 0
             torch.save({"model_state_dict": model.state_dict(), "best_epoch": epoch,
@@ -166,7 +191,7 @@ def main(argv=None):
         scores_out[name] = metric(result.label.to_numpy(int), result.audio_probability.to_numpy(float))
     (a.output / "audit.json").write_text(json.dumps({"signature": signature,
       "architecture": "fresh USSD CustomComparE16", "previous_checkpoint_loaded": False,
-      "train_only_normalization": True, "train_participants": 132, "val_participants": 28,
+      "train_only_normalization": True, "training_unit": "participant", "train_participants": 150, "val_participants": 19,
       "student_test_opened": False, "oof": False, "best_epoch": state["best_epoch"], **scores_out}, indent=2) + "\n")
     print("Saved fresh audio teacher:", a.output)
 

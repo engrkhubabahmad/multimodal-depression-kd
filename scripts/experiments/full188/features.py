@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 import json
+import shutil
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -14,7 +15,7 @@ def verified_split(path):
     if digest(root / "manifest.csv") != marker["manifest_sha256"]:
         raise ValueError("Split manifest changed")
     data = pd.read_csv(root / "manifest.csv")
-    if data.split.value_counts().to_dict() != {"train": 132, "val": 28, "student_test": 28}:
+    if data.split.value_counts().to_dict() != {"train": 150, "val": 19, "student_test": 19}:
         raise ValueError("Unexpected full-188 split")
     return data
 
@@ -35,7 +36,7 @@ def main(argv=None):
         raise ValueError("Canonical feature manifest lacks IDs, labels, or paths")
     if old.participant_id.duplicated().any() or len(old) not in (141, 188) or 440 in set(old.participant_id):
         raise ValueError("Expected 141 canonical or 188 full-protocol cached participants")
-    indexed = old.set_index("participant_id"); reused = []; missing = []
+    indexed = old.set_index("participant_id"); reused = []; missing = []; copied = 0
     for r in manifest.itertuples(index=False):
         if r.participant_id in indexed.index:
             row = indexed.loc[r.participant_id]
@@ -45,6 +46,13 @@ def main(argv=None):
             x = np.load(path, mmap_mode="r", allow_pickle=False)
             if x.ndim != 2 or x.shape[0] != 130 or x.shape[1] == 0:
                 raise ValueError(f"Invalid cached ComParE16 feature: {path}")
+            if len(old) == 188 and path.is_relative_to(a.canonical_features.resolve()):
+                dst = a.output / "cached_original_test" / path.name
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                if not dst.exists(): shutil.copy2(path, dst)
+                if digest(dst) != digest(path): raise ValueError(f"Cached audio copy differs: {dst}")
+                path = dst
+                copied += 1
             reused.append({"participant_id": int(r.participant_id), "label": int(r.label),
                            "split": r.split, "feature_path": str(path), "frames": int(x.shape[1]),
                            "provenance": "canonical label-independent ComParE16 cache"})
@@ -77,7 +85,7 @@ def main(argv=None):
         "split_manifest_sha256": digest(a.split_dir / "manifest.csv"),
         "canonical_feature_manifest_sha256": digest(old_path),
         "compare16_config_sha256": digest(a.compare16_config),
-        "reuse_count": len(reused), "fresh_count": len(fresh),
+        "reuse_count": len(reused), "fresh_count": len(fresh), "copied_to_independent_cache": copied,
         "note": "Feature extraction is label-independent. No learned normalization reused; trainers fit it on TRAIN-132."}, indent=2) + "\n")
     print("Verified full-188 features: reused", len(reused), "extracted", len(fresh))
 
