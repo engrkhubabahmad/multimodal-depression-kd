@@ -1,20 +1,44 @@
 """Run the full-188 protocol in ordered, resumable Colab stages."""
 import argparse
+import hashlib
 import importlib
 import json
 import shutil
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
 
 STAGES = ("split", "features", "train_text_teacher", "train_audio_teacher",
           "train_student_branches", "train_student_fusion")
+IDIAP_COMMIT = "de8f477619ce61a2a65640a0735aa8dfe659ac59"
+IDIAP_MAIN_BLOB = "fffbcaf8ddb8f7736f65040c623dbd936771270d"
 
 
 def required(path):
     if not path.is_file():
         raise FileNotFoundError(f"Required input missing: {path}")
     return path
+
+
+def ensure_idiap_source(source, explicit=False):
+    main = source / "main.py"
+    if main.is_file(): return source
+    if explicit:
+        raise FileNotFoundError(f"Explicit Idiap source missing: {main}")
+    source = Path("/content/idiap_bias_in_daic_woz")
+    main = source / "main.py"
+    if not main.is_file():
+        source.mkdir(parents=True, exist_ok=True)
+        url = f"https://raw.githubusercontent.com/idiap/bias_in_daic-woz/{IDIAP_COMMIT}/main.py"
+        print(f"Fetching pinned Idiap author main.py from commit {IDIAP_COMMIT[:12]}", flush=True)
+        urllib.request.urlretrieve(url, main)
+    data = main.read_bytes()
+    git_blob = hashlib.sha1(b"blob " + str(len(data)).encode() + b"\0" + data).hexdigest()
+    if git_blob != IDIAP_MAIN_BLOB:
+        main.unlink(missing_ok=True)
+        raise ValueError("Pinned Idiap author main.py failed Git blob verification")
+    return source
 
 
 def main(argv=None):
@@ -82,6 +106,9 @@ def main(argv=None):
                 raise ValueError("Completed split belongs to another seed")
             print(f"{name}: complete, skipped ({output})", flush=True)
             continue
+        if name == "train_text_teacher":
+            idiap = ensure_idiap_source(idiap, explicit=a.idiap_source is not None)
+            args[args.index("--idiap-source") + 1] = idiap
         # Only validate inputs used by this stage. A metadata split needs no
         # external author code, OpenSMILE installation or feature cache.
         inputs = {
