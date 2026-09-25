@@ -64,6 +64,7 @@ def main(argv=None):
     print(shlex.join(command))
     print('Order map:', index)
     print('Exploratory only: prompt/aggregation may differ from adapter author training; no calibrated logits.')
+    return command
 
 
 if __name__ == '__main__': main()

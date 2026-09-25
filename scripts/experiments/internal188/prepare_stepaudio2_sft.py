@@ -64,6 +64,7 @@ def main(argv=None):
     print('Run only after the single-VAL inference pilot succeeds on your GPU:')
     print(shlex.join(command))
     print('This initializes from DAIC-trained adapter weights; validation is exploratory, and VAL loss is not participant F1.')
+    return command
 
 
 if __name__ == '__main__': main()
