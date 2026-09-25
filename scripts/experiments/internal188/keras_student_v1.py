@@ -63,7 +63,7 @@ def main(argv=None):
     tf.config.experimental.enable_op_determinism()
     exp=args.experiment;data,preprocessing=inputs(exp,args.seed)
     tr,dev=data['train'],data['val'];teacher,teacher_info=targets(exp,tr['ids'],tr['y'])
-    output=exp/'students/canonical_v1/keras_temporal_seeded_v2';output.mkdir(parents=True,exist_ok=True)
+    output=exp/'students/canonical_v1/keras_audio_rank_kd_v3';output.mkdir(parents=True,exist_ok=True)
     class Distilled(tf.keras.Model):
         def __init__(self,network,mode):
             super().__init__();self.network=network;self.mode=mode
@@ -84,12 +84,23 @@ def main(argv=None):
                 weight=tf.where(tf.squeeze(y,axis=-1)>.5,positive_weight,1.)
                 hard=tf.reduce_mean(weight*tf.keras.losses.binary_crossentropy(y,p))
                 loss=hard
-                if self.mode!='plain':
+                if self.mode=='audio_rank_kd':
+                    # Calibration-free teacher ordering. Use only pairs with
+                    # both audio views present and a clear teacher separation.
+                    audio_prob=tf.stop_gradient(x['teacher'][:,1])
+                    teacher_gap=audio_prob[:,None]-audio_prob[None,:]
+                    logit=tf.squeeze(tf.math.log(p)-tf.math.log1p(-p),axis=-1)
+                    student_gap=logit[:,None]-logit[None,:]
+                    present=mask[:,1,None]*mask[None,:,1]
+                    upper=tf.linalg.band_part(tf.ones_like(teacher_gap),0,-1)-tf.eye(batch)
+                    valid=tf.cast(tf.abs(teacher_gap)>=.1,tf.float32)*present*upper
+                    importance=valid*tf.minimum(tf.abs(teacher_gap),.5)
+                    rank=tf.reduce_sum(importance*tf.nn.softplus(
+                        -tf.sign(teacher_gap)*student_gap))/(tf.reduce_sum(importance)+1e-8)
+                    loss=.85*hard+.15*rank
+                elif self.mode=='standard_kd':
                     prob=tf.clip_by_value(x['teacher'],1e-6,1-1e-6)
-                    if self.mode=='ra_kd':
-                        entropy=-(prob*tf.math.log(prob)+(1-prob)*tf.math.log(1-prob))/tf.math.log(2.)
-                        reliability=tf.maximum(1-entropy,.05)*mask
-                    else:reliability=mask
+                    reliability=mask
                     soft=tf.reduce_sum(reliability*prob,axis=1,keepdims=True)/tf.reduce_sum(reliability,axis=1,keepdims=True)
                     kd=tf.reduce_mean(tf.keras.losses.binary_crossentropy(tf.stop_gradient(soft),p))
                     loss=.7*hard+.3*kd
@@ -113,7 +124,7 @@ def main(argv=None):
         return x,d['y'].astype('float32').reshape(-1,1)
     train,validation=pack(tr,True),pack(dev)
     rows=[]
-    for mode in ('plain','standard_kd','ra_kd'):
+    for mode in ('plain','standard_kd','audio_rank_kd'):
         tf.keras.backend.clear_session();tf.keras.utils.set_random_seed(args.seed);random.seed(args.seed);np.random.seed(args.seed)
         network=architecture(tf,tr['text'].shape[1]);model=Distilled(network,mode)
         # XLA ignores the stateful tf.random seed used for training masks.
@@ -150,7 +161,7 @@ def main(argv=None):
         'deterministic_tf_ops':True,'teacher':teacher_info,
         'selection':'EarlyStopping on weighted DEV loss, not DEV F1',
         'augmentation':'TRAIN feature-space Gaussian noise sigma .05; missing-modality masks: text .25, audio .25, both .5',
-        'kd':'TRAIN teacher probabilities; 0.3 soft BCE, 0.7 weighted hard BCE; RA uses entropy-confidence and availability',
+        'kd':'standard: 0.7 hard + 0.3 masked two-teacher soft BCE; audio_rank_kd: 0.85 hard + 0.15 batch pairwise logistic rank loss, NUSD run-3 TRAIN probabilities, gap >= 0.1, audio available in both',
         'test_opened':False,'limitation':'DEV used repeatedly to develop method and select models; results exploratory'})
     (output/'protocol.json').write_text(json.dumps(preprocessing,indent=2)+'\n')
     print(pd.DataFrame(rows).to_string(index=False),flush=True)
