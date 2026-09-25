@@ -52,8 +52,8 @@ def main(argv=None):
         # Step-Audio2 may emit private reasoning before its explicit English answer marker.
         candidates.extend(x.lower() for x in re.findall(r'<英语>\s*(yes|no)\b', response, flags=re.IGNORECASE))
         if len(set(candidates)) != 1:
-            raise ValueError(f'{ref.participant_id}/{ref.chunk_id}: no unique explicit Yes/No answer; '
-                             f'response starts {response[:120]!r}')
+            raise ValueError(f'{ref.participant_id}/{ref.chunk_id}: no unique explicit Yes/No answer '
+                             f'in {len(response)} response characters; raw response omitted')
         answer = candidates[0]
         answers[key] = {'participant_id': int(ref.participant_id), 'chunk_id': int(ref.chunk_id),
                         'label': int(ref.label), 'prediction': int(answer == 'yes'),
