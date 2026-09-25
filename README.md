@@ -62,4 +62,4 @@ After notebooks 00–05 succeed, notebook 06 verifies the frozen targets and aut
 
 `results/<run_id>/`
 
-Each result package includes the DEV-34 participant predictions, comparative metrics table, confusion matrices (CSV + PNG), classification reports (CSV + JSON), source metric/audit JSON, and run provenance. Large checkpoints/features remain only in the fresh Drive run folder.
+Each result package includes the DEV-34 participant predictions, comparative metrics table, confusion matrices (CSV + PNG at 600 DPI + PDF at 600 DPI), classification reports (CSV + JSON), source metric/audit JSON, and run provenance. Large checkpoints/features remain only in the fresh Drive run folder.
