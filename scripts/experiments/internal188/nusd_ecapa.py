@@ -190,10 +190,22 @@ def patch_modern_nusd_compat(nusd_source):
     if warm_anchor not in text and warm_replacement not in text:
         raise ValueError("NUSD train initialization layout changed")
     text = text.replace(warm_anchor, warm_replacement)
+    result_anchor = "            results_dict_dir = os.path.join(current_dir, 'results_dict_'+args.threshold)"
+    result_new = "            results_dict_dir = os.path.join(current_dir, 'results_dict_'+args.threshold+('_train' if os.environ.get('DAIC_NUSD_EVAL_SPLIT') == 'train' else ''))"
+    if result_anchor not in text and result_new not in text:
+        raise ValueError("NUSD result directory layout changed")
+    text = text.replace(result_anchor, result_new)
     main.write_text(text)
     data_gen = src / "data_loader" / "data_gen.py"
     text = data_gen.read_text().replace("dtype=np.int)", "dtype=int)")
     data_gen.write_text(text)
+    organiser = src / "data_loader" / "organiser.py"
+    org = organiser.read_text()
+    old_labs = "        labs = dev_labels\n    # if gender_balance index"
+    new_labs = "        labs = train_labels if os.environ.get('DAIC_NUSD_EVAL_SPLIT') == 'train' else dev_labels\n    # if gender_balance index"
+    if old_labs not in org and new_labs not in org:
+        raise ValueError("NUSD evaluation split layout changed")
+    organiser.write_text(org.replace(old_labs, new_labs))
     utility = src / "utilities" / "utilities_main.py"
     text = utility.read_text().replace("torch.load(checkpoint_path)", "torch.load(checkpoint_path, weights_only=False)")
     # Frozen inference needs weights and epoch only. The released CUDA RNG
@@ -266,6 +278,39 @@ def select_best_nusd_run(run_dir):
         candidates.append({"run": index, "author_val_macro_f1": f1,
                            "epoch": epoch, "weights": str(weights)})
     return max(candidates, key=lambda item: (item["author_val_macro_f1"], -item["run"])), candidates
+
+
+def export_nusd_train_targets(run_dir, split_manifest, output):
+    """Export one frozen NUSD run's full TRAIN participant means for KD."""
+    import pickle
+    source = Path(run_dir) / "results_dict_fscore_train" / "0.pickle"
+    with source.open("rb") as f:
+        data = pickle.load(f)
+    expected = pd.read_csv(split_manifest)
+    expected = expected.loc[expected.split.eq("train"), ["participant_id", "label"]]
+    ids = np.asarray(data["folder"]).reshape(-1).astype(int)
+    labels = np.asarray(data["target"]).reshape(-1).astype(int)
+    prob = np.asarray(data["output"]).reshape(-1).astype(float)
+    if len(expected) != 107 or not len(ids) == len(labels) == len(prob) or not np.isfinite(prob).all():
+        raise ValueError("Invalid NUSD TRAIN prediction shape or split")
+    if np.any((prob < 0) | (prob > 1)):
+        raise ValueError("NUSD outputs are not sigmoid probabilities")
+    rows = pd.DataFrame({"participant_id":ids,"label":labels,"audio_probability":prob})
+    if rows.groupby("participant_id").label.nunique().max() != 1:
+        raise ValueError("Conflicting NUSD labels within one participant")
+    rows = rows.groupby(["participant_id","label"],as_index=False).audio_probability.mean()
+    frame = expected.merge(rows,on=["participant_id","label"],how="left",validate="one_to_one")
+    if len(frame) != 107 or frame.audio_probability.isna().any() or frame.participant_id.duplicated().any():
+        raise ValueError("NUSD TRAIN targets do not cover exactly the frozen TRAIN-107 IDs and labels")
+    q = np.clip(frame.audio_probability.to_numpy(float),1e-6,1-1e-6)
+    frame["audio_probability"] = q
+    frame["audio_logit"] = np.log(q/(1-q))
+    output = Path(output); output.mkdir(parents=True,exist_ok=True)
+    frame.to_csv(output/"train_audio_targets.csv",index=False)
+    (output/"train_audio_audit.json").write_text(json.dumps({"participants":107,
+        "source_run":str(run_dir),"aggregation":"mean sigmoid segment probability",
+        "in_sample":True,"test_opened":False},indent=2)+"\n")
+    return frame
 
 
 def configure_nusd_finetune(nusd_source, daic_root, experiment, metadata_dir,
