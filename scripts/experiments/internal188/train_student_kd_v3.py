@@ -111,7 +111,26 @@ def main(argv=None):
             result=metrics(dy,prob);results[name]=result
             pd.DataFrame({'participant_id':dids,'label':dy,'probability':prob,
                 'prediction':(prob>=.5).astype(int)}).to_csv(folder/f'dev_{name}_predictions.csv',index=False)
-        (folder/'metrics.json').write_text(json.dumps({'best_epoch':state['epoch'],'scenarios':results},indent=2)+'\n')
+        # Fixed DEV perturbations are reporting only; they do not choose checkpoints.
+        noise={}
+        for sd in (.1,.3):
+            for modality in ('text','audio','both'):
+                scores=[]
+                for trial in range(10):
+                    rng=np.random.default_rng(a.seed+1000*trial+int(sd*100)+{'text':1,'audio':2,'both':3}[modality])
+                    t=dt.clone();aa=ad.clone()
+                    if modality in ('text','both'):
+                        t=t+torch.tensor(rng.normal(0,sd,size=dt.shape),device=device,dtype=dt.dtype)
+                    if modality in ('audio','both'):
+                        aa=aa+torch.tensor(rng.normal(0,sd,size=ad.shape),device=device,dtype=ad.dtype)
+                    with torch.no_grad():prob=torch.sigmoid(model(t,aa,full)).cpu().numpy()
+                    scores.append(metrics(dy,prob))
+                key=f'noise_{modality}_{sd}'
+                noise[key]={k:{'mean':float(np.mean([v[k] for v in scores])),
+                               'std':float(np.std([v[k] for v in scores],ddof=1))}
+                            for k in ('macro_f1','depressed_f1','auroc')}
+        (folder/'metrics.json').write_text(json.dumps({'best_epoch':state['epoch'],
+            'scenarios':results,'noise_repeats':noise},indent=2)+'\n')
         rows.append({'mode':mode,'epoch':state['epoch'],**{f'clean_{k}':v for k,v in results['clean'].items() if k!='confusion_matrix'},
              'missing_text_macro_f1':results['missing_text']['macro_f1'],
              'missing_audio_macro_f1':results['missing_audio']['macro_f1']})
@@ -125,6 +144,7 @@ def main(argv=None):
         'ra_reliability':'label-free normalized teacher confidence with modality availability',
         'training_masks':'50% both, 25% missing text, 25% missing audio; Gaussian sigma .1, same schedule across modes',
         'selection':'best clean DEV macro F1; tie depressed F1 then AUROC',
+        'noise_report':'DEV only, sigma 0.1 and 0.3, 10 fixed repetitions per text/audio/both; reporting only',
         'warning':'exploratory DEV selection; logit normalization is not probability calibration',
         'test_opened':False},indent=2)+'\n')
     print('Saved:',out/'comparison.csv')
