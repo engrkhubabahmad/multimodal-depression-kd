@@ -186,6 +186,13 @@ def patch_modern_nusd_compat(nusd_source):
     data_gen.write_text(text)
     utility = src / "utilities" / "utilities_main.py"
     text = utility.read_text().replace("torch.load(checkpoint_path)", "torch.load(checkpoint_path, weights_only=False)")
+    # Frozen inference needs weights and epoch only. The released CUDA RNG
+    # state can have a different byte count on current Colab GPUs/PyTorch.
+    old = "    torch.set_rng_state(checkpoint['rng_state'])\n    if cuda:\n        torch.cuda.set_rng_state(checkpoint['cuda_rng_state'])\n    np.random.set_state(checkpoint['numpy_rng_state'])\n    random.setstate(checkpoint['random_rng_state'])"
+    new = "    if os.environ.get('DAIC_NUSD_FROZEN_EVAL') != '1':\n        torch.set_rng_state(checkpoint['rng_state'])\n        if cuda:\n            torch.cuda.set_rng_state(checkpoint['cuda_rng_state'])\n        np.random.set_state(checkpoint['numpy_rng_state'])\n        random.setstate(checkpoint['random_rng_state'])"
+    if old not in text and new not in text:
+        raise ValueError("NUSD RNG restoration layout changed; inspect utilities_main.py")
+    text = text.replace(old, new)
     utility.write_text(text)
 
 
