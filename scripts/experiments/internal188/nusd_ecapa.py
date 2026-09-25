@@ -270,10 +270,9 @@ def export_validation_predictions(run_dir, output, manifest_path, num_runs):
     manifest = pd.read_csv(manifest_path)
     expected = manifest[manifest.split.eq("val")][["participant_id", "label"]].copy()
     expected.participant_id = expected.participant_id.astype(int)
-    result_dirs = sorted(run.glob("results_dict_total"))
-    if not result_dirs:
-        raise FileNotFoundError(f"NUSD outputs missing under {run}; run original test --validate first")
-    result_dir = result_dirs[-1]
+    result_dir = run / "results_dict_fscore"
+    if not result_dir.is_dir():
+        raise FileNotFoundError(f"F1-selected NUSD outputs missing under {result_dir}; run original test --validate first")
     files = sorted(result_dir.glob("*.pickle"), key=lambda p: int(p.stem))
     if len(files) != num_runs:
         raise ValueError(f"Expected {num_runs} NUSD result files, found {len(files)} in {result_dir}")
@@ -311,7 +310,7 @@ def export_validation_predictions(run_dir, output, manifest_path, num_runs):
     pd.DataFrame(metrics["classification_report"]).transpose().to_csv(output / "classification_report.csv")
     (output / "val_metrics.json").write_text(json.dumps(metrics,indent=2)+"\n")
     (output / "provenance.json").write_text(json.dumps({"method":"published NUSD raw ECAPA-TDNN",
-        "aggregation":"mean author-crop probability per participant, then mean released-run probability",
+        "aggregation":"mean author-crop probability per participant from one author F1-selected run",
         "logit":"logit of the final clipped mean probability; raw model output is sigmoid probability",
         "threshold":0.5,"runs":num_runs,"split":"canonical DEV-34; TEST untouched",
         "preprocessing":"author daic_woz_process; raw 16 kHz audio, SNV, interruption/background fixes",
