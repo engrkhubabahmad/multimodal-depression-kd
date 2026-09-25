@@ -251,9 +251,10 @@ def select_best_nusd_run(run_dir):
         marker = run / "model" / str(index) / "best_scores_fscore.pickle"
         with marker.open("rb") as handle:
             scores = pickle.load(handle)
-        if len(scores) != 16:
+        # Author saves best_scores_fscore[1:], dropping the leading total.
+        if len(scores) != 15:
             raise ValueError(f"Unexpected author score format in {marker}")
-        f1, epoch = float(scores[11]), int(scores[-1])
+        f1, epoch = float(scores[10]), int(scores[-1])
         weights = marker.parent / f"md_{epoch}_epochs.pth"
         if not np.isfinite(f1) or not 0 <= f1 <= 1 or not weights.is_file():
             raise ValueError(f"Invalid validation F1 or matching weights for author run {index}: {marker}")
