@@ -38,8 +38,8 @@ def prepare(experiment):
 def main(argv=None):
     p=argparse.ArgumentParser(); p.add_argument("--experiment",required=True,type=Path)
     p.add_argument("--daic-root",required=True,type=Path)
-    p.add_argument("--stage",choices=["prepare","text","audio","no_kd","ra_kd"],required=True)
-    p.add_argument("--idiap-source",type=Path); p.add_argument("--ussd-source",type=Path)
+    p.add_argument("--stage",choices=["prepare","text"],required=True)
+    p.add_argument("--idiap-source",type=Path)
     a=p.parse_args(argv); e=a.experiment; base=e/"students"/"canonical_v1"
     inputs=prepare(e)
     if a.stage=="prepare": print("Verified student inputs:",inputs); return
@@ -48,18 +48,6 @@ def main(argv=None):
         if not a.idiap_source or not a.idiap_source.is_dir(): raise FileNotFoundError("Provide --idiap-source")
         from scripts.students.participant_student_v3.pretrain_text import main as train
         train(["--daic-root",str(a.daic_root),"--idiap-source",str(a.idiap_source),"--output",str(text_dir),"--seed","103"])
-    elif a.stage=="audio":
-        if not a.ussd_source or not a.ussd_source.is_dir(): raise FileNotFoundError("Provide --ussd-source for normalization only")
-        from scripts.students.participant_student_v3.pretrain_audio import main as train
-        train(["--features",str(inputs),"--author-root",str(a.ussd_source),"--output",str(audio_dir)])
-    elif a.stage=="no_kd":
-        for directory, file in ((text_dir,"train_text_embeddings.npz"),(audio_dir,"train_audio_embeddings.npz")):
-            if not (directory/file).is_file(): raise FileNotFoundError(directory/file)
-        from scripts.students.participant_student_v3.train_fusion_no_kd import main as train
-        train(["--text-branch",str(text_dir),"--audio-branch",str(audio_dir),
-               "--output",str(base/"no_kd"),"--seed","103"])
-    else:
-        raise RuntimeError("RA-KD is blocked: NUSD run-2 TRAIN-107 targets have not been exported and verified. Existing v3 KD code expects USSD run-4 targets; never substitute them.")
 
 
 if __name__=="__main__": main()
