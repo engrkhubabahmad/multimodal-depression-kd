@@ -216,22 +216,18 @@ def configure_nusd(nusd_source, daic_root, experiment, metadata_dir, run_dir, nu
 
 
 def discover_checkpoint_run(feature_dir):
-    """Find a published NUSD run containing saved best-epoch metadata."""
+    """Select the released ECAPA-TDNN/NUSD run, never another variant."""
     feature_dir = Path(feature_dir)
-    candidates = []
-    for marker in feature_dir.rglob("model/1/best_scores_total.pickle"):
-        run = marker.parent.parent.parent
-        count = 0
-        while (run / "model" / str(count + 1) / "best_scores_total.pickle").is_file():
-            count += 1
-        if count:
-            candidates.append((count, run))
-    if not candidates:
-        raise FileNotFoundError(f"No NUSD checkpoint under {feature_dir}. Download the official release folder there first: {WEIGHTS_URL}")
-    candidates.sort(key=lambda x: (x[0], len(str(x[1]))), reverse=True)
-    if len(candidates) > 1 and candidates[0][0] == candidates[1][0]:
-        raise ValueError("Multiple NUSD checkpoints found; specify one explicitly: " + ", ".join(str(p) for _,p in candidates[:5]))
-    return candidates[0][1], candidates[0][0]
+    run = feature_dir / "raw_ecapa_tdnn" / "NUSD"
+    count = 0
+    while (run / "model" / str(count + 1) / "best_scores_total.pickle").is_file():
+        count += 1
+    if count != 5:
+        raise FileNotFoundError(f"Expected five released ECAPA-TDNN/NUSD runs under {run}; found {count}. Download the complete official release: {WEIGHTS_URL}")
+    for index in range(1, 6):
+        if not list((run / "model" / str(index)).glob("md_*_epochs.pth")):
+            raise FileNotFoundError(f"Missing model weights for released NUSD run {index} in {run}")
+    return run, count
 
 
 def export_validation_predictions(run_dir, output, manifest_path, num_runs):
