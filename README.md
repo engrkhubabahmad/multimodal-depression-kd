@@ -1,75 +1,57 @@
-# reliability-aware-depression-kd
+# Exact v3 reproduction
 
-## Active protocol
+This branch is deliberately narrow. The default `main` pipeline reproduces the frozen v3 TRAIN-107 / DEV-34 experiment only.
 
-Strict participant-disjoint DAIC-WOZ protocol:
+## Goal
+
+Reproduce, from a fresh run folder, the exact v3 path:
+
+1. IDIAP InducT-GCN text teacher targets from its pinned published checkpoint.
+2. USSD ComParE16 + LSTM run-4 audio teacher from raw DAIC-WOZ audio/transcripts using openSMILE 3.0.2.
+3. Independent v3 text and audio student branches.
+4. No-KD multimodal baseline.
+5. Standard KD multimodal student.
+6. Verification against the frozen DEV-34 results.
+
+RA-KD, final TEST scoring, full188/internal188 experiments, StepAudio2, NUSD, WavLM and other exploratory code are intentionally absent from `main`.
+
+## Preserved history
+
+The previous main branch is preserved intact at:
+
+`archive/pre-exact-repro-main-20260926`
+
+Existing experiment branches and all Google Drive experiment folders are left untouched.
+
+## Frozen protocol
 
 - TRAIN: 107 participants
 - DEV: 34 participants
-- participant 440 excluded from DEV
-- TEST: 47 participants, closed until the final student is frozen
+- Participant 440 excluded from DEV
+- Threshold: 0.5
+- TEST is never read or scored by this pipeline
+- Standard KD: temperature 2.0, KD weight 0.5
+- Fusion seed: 103
 
-## Locked teachers
+Expected DEV-34 results:
 
-### Audio teacher
+| Model | Macro-F1 | Depressed F1 | AUROC |
+|---|---:|---:|---:|
+| v3 text branch | 0.7850 | 0.7407 | 0.8063 |
+| No-KD multimodal | 0.7043 | 0.6087 | 0.7470 |
+| Standard KD | 0.7236 | 0.6667 | 0.7668 |
 
-Ravi et al. USSD, ComParE16 + LSTM-only, released run #4.
+Teacher checks:
 
-- author commit: `c3e68649153004ed2174878a1c54c716ad26cfd7`
-- checkpoint: `md_35_epochs.pth`
-- frozen DEV-34 macro-F1: 0.7875
-- exact active-model parameters: 1,153,537
-- input per segment: 130 ComParE16 channels × 384 frames
-- TRAIN KD targets: author-style run-4 seed-1300, 6662-frame crop
-- no fine-tuning in the active path
+- IDIAP text teacher DEV-34 Macro-F1: 0.8418604651
+- USSD audio teacher DEV-34 Macro-F1: 0.7875
 
-Code: `scripts/teachers/ussd_audio/`
+## Drive safety
 
-### Text teacher
+Every reproduction starts in a brand-new folder:
 
-Idiap participant-level InducT-GCN top-250.
+`/content/drive/MyDrive/DAIC_WOZ/experiments/exact_v3_reproduction/<run_id>/`
 
-- published checkpoint + vectorizer
-- frozen DEV-34 macro-F1: 0.8418604651
-- top-250 TF-IDF participant documents
-- 250 → 64 graph projection → 2-class output
-- exact trainable weights from the published architecture: 16,128
-- TRAIN KD targets: checkpoint training-graph document nodes
-- DEV targets: saved `A_dev`, participant 440 excluded
-- TEST never opened
+Historical experiment folders are read-only reference material and are never overwritten.
 
-Code: `scripts/teachers/idiap_text/`
-
-## Active student candidate: rich compact v2
-
-The previous 670k `ParticipantReLiMPNet` mean/std-log-Mel student is retained as **v0 experimental history**. Its DEV-34 no-KD macro-F1 was 0.6092 and its equal Standard-KD run was 0.5729.
-
-The active candidate is `RichParticipantStudent-v2`:
-
-- reuses existing patient-only USSD-compatible ComParE16 **input features**, not teacher predictions or hidden states
-- independently refits TRAIN-only acoustic normalization
-- independently fits TRAIN-only top-250 TF-IDF from Participant transcripts plus a fixed TRAIN-only positive-PMI word graph
-- temporal Conv1D + depthwise temporal Conv + small GRU audio encoder
-- compact text MLP
-- text-conditioned attention over acoustic segments
-- participant-level multimodal classifier
-- expected trainable size: about 260k parameters, much smaller than the audio teacher
-- threshold fixed at 0.5
-- TEST not prepared or opened
-
-Code: `scripts/students/participant_student_v2/`
-
-Design audit: `docs/student_v2_design.md`
-
-## Colab notebooks
-
-Run in order:
-
-1. `notebooks/01_text_teacher.ipynb`
-2. `notebooks/02_audio_teacher.ipynb`
-3. `notebooks/03_student_baseline.ipynb` — active v2 rich No-KD student
-4. `notebooks/04_kd.ipynb` — intentionally gated until the v2 No-KD result is frozen
-
-Do not mix the old v0 Standard-KD checkpoint/results with the v2 student.
-
-TEST must remain closed.
+Run notebooks in numerical order.

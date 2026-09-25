@@ -1,0 +1,3 @@
+# Colab already provides torch/numpy/pandas/sklearn in normal runtimes.
+optuna>=4,<5
+tqdm>=4.66
