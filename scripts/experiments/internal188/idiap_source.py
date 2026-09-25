@@ -9,6 +9,8 @@ CHECKPOINT_BLOB = '4c7cebd72362702efd5cbf3e5521883f17829f60'
 VECTORIZER_BLOB = 'e76e5d66226b13b51f2aff4bc58c2484b8e4edd3'
 TRAIN_IDS_BLOB = 'fdf3651a8f9a52eeafdb559798cf59e37aef1ab4'
 DEV_IDS_BLOB = '4ce5e8b091f45d6fc93e831965c26dd7d8520c76'
+TRAIN_PARTICIPANT_BLOB = 'b872caf6978593a2283993aa4ba300213197022b'
+DEV_PARTICIPANT_BLOB = 'c193fdac6425fe3fd5caaf50a7819ed47a51ec9b'
 
 
 def checked_file(path, expected_blob):
@@ -70,4 +72,20 @@ def ensure_frozen_export_source():
             path.unlink(missing_ok=True)
             raise
     checked_file(root / 'main.py', MAIN_BLOB)
+    return root
+
+
+def ensure_participant_documents():
+    """Fetch pinned author TRAIN/DEV documents, then verify their Git blobs."""
+    root = ensure_frozen_export_source()
+    for name, blob in [('train_Participant.txt', TRAIN_PARTICIPANT_BLOB),
+                       ('dev_Participant.txt', DEV_PARTICIPANT_BLOB)]:
+        path = root / 'data' / 'AVEC_16_data' / name
+        if not path.is_file():
+            url = f'https://raw.githubusercontent.com/idiap/bias_in_daic-woz/{COMMIT}/data/AVEC_16_data/{name}'
+            urllib.request.urlretrieve(url, path)
+        try: checked_file(path, blob)
+        except ValueError:
+            path.unlink(missing_ok=True)
+            raise
     return root
