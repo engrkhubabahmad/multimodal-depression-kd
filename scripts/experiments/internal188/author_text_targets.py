@@ -15,7 +15,9 @@ def author_rows(root,split):
     ids=pd.read_csv(base/f'{split}_IDS.txt',sep='\t')
     lines=(base/f'{split}_Participant.txt').read_text().splitlines()
     if len(ids)!=len(lines) or ids.original_ID.duplicated().any():
-        raise ValueError(f'Author {split} document/ID row count mismatch')
+        raise ValueError(f'Pinned Idiap repository has {len(lines)} {split} participant documents '
+                         f'but {len(ids)} ID rows. The full author preprocessing corpus is not '
+                         'published here. Do not use the two example documents for KD.')
     labels=[];docs=[]
     for line in lines:
         label,separator,doc=line.partition('\t')
@@ -28,6 +30,8 @@ def author_rows(root,split):
 def main(argv=None):
     ap=argparse.ArgumentParser();ap.add_argument('--experiment',required=True,type=Path)
     a=ap.parse_args(argv);exp=a.experiment;src=ensure_participant_documents()
+    # Check corpus completeness before loading a version-sensitive sklearn pickle.
+    author_rows(src,'train');author_rows(src,'dev')
     ckpt=src/'model/Participant/model_inductgcn[250].pkl'
     vec=src/'model/Participant/vtzer_inductgcn[250].pkl'
     with vec.open('rb') as file:vectorizer=pickle.load(file)
