@@ -59,9 +59,11 @@ def main(argv=None):
     parser.add_argument('--batch-size',type=int,default=16);args=parser.parse_args(argv)
     if args.epochs<1 or args.batch_size<1:raise ValueError('Invalid epochs/batch size')
     import tensorflow as tf
+    tf.keras.utils.set_random_seed(args.seed)
+    tf.config.experimental.enable_op_determinism()
     exp=args.experiment;data,preprocessing=inputs(exp,args.seed)
     tr,dev=data['train'],data['val'];teacher,teacher_info=targets(exp,tr['ids'],tr['y'])
-    output=exp/'students/canonical_v1/keras_temporal_v1';output.mkdir(parents=True,exist_ok=True)
+    output=exp/'students/canonical_v1/keras_temporal_seeded_v2';output.mkdir(parents=True,exist_ok=True)
     class Distilled(tf.keras.Model):
         def __init__(self,network,mode):
             super().__init__();self.network=network;self.mode=mode
@@ -114,7 +116,10 @@ def main(argv=None):
     for mode in ('plain','standard_kd','ra_kd'):
         tf.keras.backend.clear_session();tf.keras.utils.set_random_seed(args.seed);random.seed(args.seed);np.random.seed(args.seed)
         network=architecture(tf,tr['text'].shape[1]);model=Distilled(network,mode)
-        model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=3e-4),run_eagerly=False)
+        # XLA ignores the stateful tf.random seed used for training masks.
+        # Keep graph execution but disable XLA for controlled seeded runs.
+        model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=3e-4),
+                      run_eagerly=False,jit_compile=False)
         folder=output/mode;folder.mkdir(parents=True,exist_ok=True)
         stopping=tf.keras.callbacks.EarlyStopping(monitor='val_loss',patience=18,min_delta=1e-4,
                                                    restore_best_weights=True,mode='min')
@@ -141,7 +146,8 @@ def main(argv=None):
               'missing audio',results['missing_audio']['macro_f1'],flush=True)
     pd.DataFrame(rows).to_csv(output/'comparison.csv',index=False)
     preprocessing.update({'architecture':'Keras two-branch temporal student',
-        'framework':tf.__version__,'seed':args.seed,'teacher':teacher_info,
+        'framework':tf.__version__,'seed':args.seed,'xla_jit_compile':False,
+        'deterministic_tf_ops':True,'teacher':teacher_info,
         'selection':'EarlyStopping on weighted DEV loss, not DEV F1',
         'augmentation':'TRAIN feature-space Gaussian noise sigma .05; missing-modality masks: text .25, audio .25, both .5',
         'kd':'TRAIN teacher probabilities; 0.3 soft BCE, 0.7 weighted hard BCE; RA uses entropy-confidence and availability',
