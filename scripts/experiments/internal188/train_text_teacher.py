@@ -1,4 +1,4 @@
-"""Train fresh Idiap participant InducT-GCN on TRAIN-113; evaluate VAL-37."""
+"""Fine-tune Idiap participant InducT-GCN on TRAIN; select on official DEV."""
 from __future__ import annotations
 import argparse
 import json
@@ -20,8 +20,9 @@ def verified_split(split_dir, coverage_dir):
     if digest(split_dir / 'manifest.csv') != marker['manifest_sha256']:
         raise ValueError('Split manifest changed')
     manifest = pd.read_csv(split_dir / 'manifest.csv')
-    if manifest.split.value_counts().to_dict() != {'train': 113, 'val': 37, 'student_test': 38}:
-        raise ValueError('Unexpected split counts')
+    counts=manifest.split.value_counts().to_dict()
+    if counts not in ({'train':113,'val':37,'student_test':38},{'train':107,'val':34,'student_test':47}):
+        raise ValueError(f'Unexpected split counts: {counts}')
     covered = pd.read_csv(coverage_dir / 'participant_manifest.csv')
     expected = manifest.loc[manifest.split.isin(['train', 'val'])].sort_values('participant_id')
     covered = covered.sort_values('participant_id')
@@ -209,7 +210,7 @@ def main(argv=None):
                                                       'source_split'].eq('canonical_train'))),
            "clean_holdout_claim_valid": False if transfer else True},
        "graph_settings": {"use_pagerank": False, "window_size": 3, "vocabulary_size": 250},
-       "train_participants": 113, "val_participants": 37, "student_test_opened": False,
+       "train_participants": int(len(tr)), "val_participants": int(len(va)), "student_test_opened": False,
        "oof": False, "best_epoch": state["best_epoch"],
        "train": metric(y, train_prob), "val": metric(vy, val_prob)}, indent=2) + "\n")
     print("Saved fresh text teacher:", args.output)
