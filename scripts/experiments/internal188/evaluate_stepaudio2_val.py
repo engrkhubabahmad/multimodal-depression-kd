@@ -108,7 +108,7 @@ def main(argv=None):
     predictions = a.output / 'val_predictions.csv'
     summary = a.output / 'val_metrics.json'
     for path, frame in ((chunk_path, chunks), (predictions, result)):
-        if path.exists() and not pd.read_csv(path).equals(frame):
+        if path.exists() and path.read_text() != frame.to_csv(index=False):
             raise ValueError(f'Existing predictions differ: {path}')
     if summary.exists() and json.loads(summary.read_text()) != metrics:
         raise ValueError(f'Existing metrics differ: {summary}')
