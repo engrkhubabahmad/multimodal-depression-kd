@@ -11,6 +11,17 @@ from sklearn.metrics import accuracy_score, confusion_matrix, f1_score
 from .split import digest
 
 
+def explicit_yes_no(response):
+    """Return a unique explicit Yes/No label, or None when the output is ambiguous."""
+    response = response or ''
+    candidates = []
+    leading = re.match(r'^\s*(?:<[^>\r\n]{1,32}>\s*)*(yes|no)\b', response, flags=re.IGNORECASE)
+    if leading:
+        candidates.append(leading.group(1).lower())
+    candidates.extend(x.lower() for x in re.findall(r'<英语>\s*(yes|no)\b', response, flags=re.IGNORECASE))
+    return candidates[0] if candidates and len(set(candidates)) == 1 else None
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--split-dir', type=Path, required=True)
@@ -45,16 +56,10 @@ def main(argv=None):
         if ref is None or key in answers:
             raise ValueError(f'Unknown, changed, or duplicated audio window: {audios[0]}')
         response = row.get('response') or ''
-        candidates = []
-        leading = re.match(r'^\s*(?:<[^>\r\n]{1,32}>\s*)*(yes|no)\b', response, flags=re.IGNORECASE)
-        if leading:
-            candidates.append(leading.group(1).lower())
-        # Step-Audio2 may emit private reasoning before its explicit English answer marker.
-        candidates.extend(x.lower() for x in re.findall(r'<英语>\s*(yes|no)\b', response, flags=re.IGNORECASE))
-        if len(set(candidates)) != 1:
+        answer = explicit_yes_no(response)
+        if answer is None:
             raise ValueError(f'{ref.participant_id}/{ref.chunk_id}: no unique explicit Yes/No answer '
                              f'in {len(response)} response characters; raw response omitted')
-        answer = candidates[0]
         answers[key] = {'participant_id': int(ref.participant_id), 'chunk_id': int(ref.chunk_id),
                         'label': int(ref.label), 'prediction': int(answer == 'yes'),
                         'duration_seconds': float(ref.duration_seconds), 'response': response}
