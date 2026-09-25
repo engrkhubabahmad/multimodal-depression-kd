@@ -180,6 +180,11 @@ def patch_modern_nusd_compat(nusd_source):
     main = src / "main_disent_fscore_grad.py"
     text = main.read_text()
     text = text.replace("from distutils.dir_util import copy_tree", "from shutil import copytree as copy_tree")
+    old = "    folder_extensions = [str(i) for i in range(1, exp_runthrough+1)]"
+    new = "    folder_extensions = [os.environ['DAIC_NUSD_RUN_INDEX']] if os.environ.get('DAIC_NUSD_RUN_INDEX') else [str(i) for i in range(1, exp_runthrough+1)]"
+    if old not in text and new not in text:
+        raise ValueError("NUSD run indexing layout changed")
+    text = text.replace(old, new)
     main.write_text(text)
     data_gen = src / "data_loader" / "data_gen.py"
     text = data_gen.read_text().replace("dtype=np.int)", "dtype=int)")
@@ -235,6 +240,26 @@ def discover_checkpoint_run(feature_dir):
         if not list((run / "model" / str(index)).glob("md_*_epochs.pth")):
             raise FileNotFoundError(f"Missing model weights for released NUSD run {index} in {run}")
     return run, count
+
+
+def select_best_nusd_run(run_dir):
+    """Highest saved author validation macro F1, from NUSD's fscore checkpoint."""
+    import pickle
+    run = Path(run_dir)
+    candidates = []
+    for index in range(1, 6):
+        marker = run / "model" / str(index) / "best_scores_fscore.pickle"
+        with marker.open("rb") as handle:
+            scores = pickle.load(handle)
+        if len(scores) != 16:
+            raise ValueError(f"Unexpected author score format in {marker}")
+        f1, epoch = float(scores[11]), int(scores[-1])
+        weights = marker.parent / f"md_{epoch}_epochs.pth"
+        if not np.isfinite(f1) or not 0 <= f1 <= 1 or not weights.is_file():
+            raise ValueError(f"Invalid validation F1 or matching weights for author run {index}: {marker}")
+        candidates.append({"run": index, "author_val_macro_f1": f1,
+                           "epoch": epoch, "weights": str(weights)})
+    return max(candidates, key=lambda item: (item["author_val_macro_f1"], -item["run"])), candidates
 
 
 def export_validation_predictions(run_dir, output, manifest_path, num_runs):
