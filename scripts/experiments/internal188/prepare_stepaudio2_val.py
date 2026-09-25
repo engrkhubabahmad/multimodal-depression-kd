@@ -107,17 +107,17 @@ def main(argv=None):
     if index.exists() and not pd.read_csv(index).equals(reference):
         raise ValueError(f'Index differs; refusing overwrite: {index}')
     dataset.write_text(content); reference.to_csv(index, index=False)
-    result = a.output / f'val_chunks_{a.chunk_seconds}s_predictions.jsonl'
+    result = a.output / f'val_chunks_{a.chunk_seconds}s_direct_predictions.jsonl'
     command = ['swift', 'infer', '--model', MODEL, '--model_type', 'step_audio2_mini',
                '--adapters', ADAPTER, '--use_hf', 'true', '--load_args', 'false',
                '--val_dataset', str(dataset), '--result_path', str(result),
                '--infer_backend', 'transformers', '--max_batch_size', '1',
-               '--temperature', '0', '--max_new_tokens', '16']
+               '--temperature', '0', '--max_new_tokens', '8', '--response_prefix', '<英语>']
     print(f'Prepared {len(val)} VAL participants as {len(reference)} non-overlapping windows of at most {a.chunk_seconds}s; internal TEST unopened.')
     print('Run with a Step-Audio2 compatible GPU and ms-swift installed:')
     print(shlex.join(command))
     print('Window map:', index)
-    print('Participant prediction uses a duration-weighted majority of window Yes/No answers; this is exploratory and has no calibrated probabilities.')
+    print('Direct-answer prefix: <英语>; generation is limited to 8 tokens, then window Yes/No answers are aggregated by duration.')
     return command
 
 
