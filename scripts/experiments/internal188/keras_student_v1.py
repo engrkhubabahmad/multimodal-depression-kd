@@ -126,7 +126,9 @@ def main(argv=None):
         for name,mask in [('clean',(1,1)),('missing_text',(0,1)),('missing_audio',(1,0))]:
             feed={'text':dev['text'],'audio':dev['audio'],
                   'mask':np.tile(mask,(len(dev['y']),1)).astype('float32')}
-            p=network.predict(feed,batch_size=32,verbose=0).reshape(-1)
+            # DEV-34 fits in one batch. Direct eager inference avoids repeated
+            # predict-function tracing across models and mask scenarios.
+            p=network(feed,training=False).numpy().reshape(-1)
             results[name]=score(dev['y'],p)
             pd.DataFrame({'participant_id':dev['ids'],'label':dev['y'],'probability':p,
                           'prediction':(p>=.5).astype(int)}).to_csv(folder/f'dev_{name}_predictions.csv',index=False)
