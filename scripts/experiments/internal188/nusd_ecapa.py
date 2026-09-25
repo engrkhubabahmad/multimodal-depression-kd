@@ -132,6 +132,13 @@ def configure_preprocessor(preprocess_source, daic_root, experiment, metadata_di
     """Set author's DAIC preprocessing to raw/16-kHz/SNV, with TRAIN/DEV only."""
     src, daic, exp, meta = map(Path, (preprocess_source, daic_root, experiment, metadata_dir))
     _restrict_audio_scanner(src)
+    # The original runner imports the text pipeline even for raw audio. Its
+    # gensim dependency is unnecessary here and can fail on current Colab.
+    runner = src / "run" / "__main__.py"
+    runner_text = runner.read_text()
+    runner_text = runner_text.replace("from text import text_file_analysis\n", "")
+    runner_text = runner_text.replace("        text_file_analysis.startup()", "        from text import text_file_analysis\n        text_file_analysis.startup()")
+    runner.write_text(runner_text)
     config = src / "config_files" / "config.py"
     text = config.read_text()
     text = _replace(r"(?ms)^EXPERIMENT_DETAILS\s*=\s*\{.*?\}\s*$",
