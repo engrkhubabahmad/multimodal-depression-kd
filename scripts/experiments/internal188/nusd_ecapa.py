@@ -185,6 +185,11 @@ def patch_modern_nusd_compat(nusd_source):
     if old not in text and new not in text:
         raise ValueError("NUSD run indexing layout changed")
     text = text.replace(old, new)
+    warm_anchor = "        start_epoch = 0\n        # train_acc, train_fscore, train_loss, val_acc, val_fscore, val_loss"
+    warm_replacement = "        start_epoch = 0\n        if os.environ.get('DAIC_NUSD_WARM_START'):\n            initial = torch.load(os.environ['DAIC_NUSD_WARM_START'], map_location='cpu', weights_only=False)\n            model.load_state_dict(initial['state_dict'], strict=True)\n            print('Fine-tuning from frozen checkpoint:', os.environ['DAIC_NUSD_WARM_START'])\n        # train_acc, train_fscore, train_loss, val_acc, val_fscore, val_loss"
+    if warm_anchor not in text and warm_replacement not in text:
+        raise ValueError("NUSD train initialization layout changed")
+    text = text.replace(warm_anchor, warm_replacement)
     main.write_text(text)
     data_gen = src / "data_loader" / "data_gen.py"
     text = data_gen.read_text().replace("dtype=np.int)", "dtype=int)")
@@ -261,6 +266,27 @@ def select_best_nusd_run(run_dir):
         candidates.append({"run": index, "author_val_macro_f1": f1,
                            "epoch": epoch, "weights": str(weights)})
     return max(candidates, key=lambda item: (item["author_val_macro_f1"], -item["run"])), candidates
+
+
+def configure_nusd_finetune(nusd_source, daic_root, experiment, metadata_dir,
+                            output_name="nusd_run2_finetune_v1", epochs=10,
+                            learning_rate=1e-5, seed=103):
+    """Configure a fresh, separate author-runner experiment on canonical TRAIN/DEV."""
+    if not re.fullmatch(r"[a-zA-Z0-9_]+", output_name):
+        raise ValueError("Use a simple output name containing only letters, digits and underscores")
+    if not 1 <= int(epochs) <= 100 or not 0 < float(learning_rate) <= 1e-3:
+        raise ValueError("Invalid fine-tuning epoch count or learning rate")
+    feature_dir = Path(experiment) / "nusd_audio_cache" / "raw_svn_exp"
+    destination = feature_dir / output_name
+    configure_nusd(nusd_source, daic_root, experiment, metadata_dir, destination, 1)
+    config = Path(nusd_source) / "exp_run" / "config_disent_raw_grad.py"
+    source = config.read_text()
+    for name, value in {"TOTAL_EPOCHS":int(epochs), "LEARNING_RATE":float(learning_rate),
+                        "SEED":int(seed)}.items():
+        source = _replace(rf"(?m)^\s*'{name}'\s*:\s*[^,]+,",
+                          f"                      '{name}': {value},", source, name)
+    config.write_text(source)
+    return destination
 
 
 def export_validation_predictions(run_dir, output, manifest_path, num_runs):
