@@ -33,10 +33,11 @@ def main(argv=None):
     manifest_path = a.split_dir / 'manifest.csv'
     if digest(manifest_path) != marker['manifest_sha256']: raise ValueError('Split manifest changed')
     manifest = pd.read_csv(manifest_path)
-    if manifest.split.value_counts().to_dict() != {'train': 113, 'val': 37, 'student_test': 38}:
-        raise ValueError('Unexpected split counts')
+    counts=manifest.split.value_counts().to_dict()
+    if counts not in ({'train':113,'val':37,'student_test':38},{'train':107,'val':34,'student_test':47}):
+        raise ValueError(f'Unexpected split counts: {counts}')
     selected = manifest.loc[manifest.split.isin(['train', 'val'])].sort_values('participant_id')
-    if len(selected) != 150 or selected.participant_id.duplicated().any(): raise ValueError('TRAIN/VAL IDs invalid')
+    if len(selected) != counts['train']+counts['val'] or selected.participant_id.duplicated().any(): raise ValueError('TRAIN/VAL IDs invalid')
     wanted = set(selected.participant_id.astype(int)); transcripts = {}
     for path in a.daic_root.rglob('*_TRANSCRIPT.csv'):
         match = re.fullmatch(r'(\d+)_TRANSCRIPT\.csv', path.name, re.I)
@@ -84,10 +85,10 @@ def main(argv=None):
     a.output.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(rows).to_csv(a.output / 'participant_manifest.csv', index=False)
     (a.output / 'audit.json').write_text(json.dumps({'split_manifest_sha256': digest(manifest_path),
-        'train_count': 113, 'val_count': 37, 'internal_test_media_opened': False,
+        'train_count': int(counts['train']), 'val_count': int(counts['val']), 'internal_test_media_opened': False,
         'compare16_config_sha256': ORIGINAL_COMPARE16_SHA256,
         'feature_cache_manifests': {str(index): digest(index) for index, _ in caches}}, indent=2) + '\n')
-    print('TRAIN/VAL coverage complete: 150 transcripts and 150 audio arrays')
+    print(f"TRAIN/VAL coverage complete: {counts['train']+counts['val']} transcripts and audio arrays")
     print(pd.DataFrame(rows).groupby(['split', 'cache_manifest']).size())
 
 
