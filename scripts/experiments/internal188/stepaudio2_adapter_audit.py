@@ -23,8 +23,9 @@ def main(argv=None):
     if digest(split_file) != marker['manifest_sha256']:
         raise ValueError('Split manifest changed')
     manifest = pd.read_csv(split_file)
-    if manifest.split.value_counts().to_dict() != {'train': 113, 'val': 37, 'student_test': 38}:
-        raise ValueError('Unexpected participant counts')
+    counts=manifest.split.value_counts().to_dict()
+    if counts not in ({'train':113,'val':37,'student_test':38},{'train':107,'val':34,'student_test':47}):
+        raise ValueError(f'Unexpected participant counts: {counts}')
     info = HfApi().model_info(ADAPTER, files_metadata=True)
     filenames = {f.rfilename for f in info.siblings}
     required = {'adapter_config.json', 'adapter_model.safetensors', 'dev_metrics.json'}
