@@ -45,7 +45,7 @@ def main(argv=None):
         if ref is None or key in answers:
             raise ValueError(f'Unknown, changed, or duplicated audio window: {audios[0]}')
         response = row.get('response')
-        match = re.match(r'^\s*(yes|no)\b', response or '', flags=re.IGNORECASE)
+        match = re.match(r'^\s*(?:<[^>\r\n]{1,32}>\s*)*(yes|no)\b', response or '', flags=re.IGNORECASE)
         if not match:
             raise ValueError(f'{ref.participant_id}/{ref.chunk_id}: ambiguous first answer: {str(response)[:120]!r}')
         answers[key] = {'participant_id': int(ref.participant_id), 'chunk_id': int(ref.chunk_id),
