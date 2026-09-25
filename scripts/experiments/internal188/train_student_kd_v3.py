@@ -118,9 +118,9 @@ def main(argv=None):
                 scores=[]
                 for trial in range(10):
                     rng=np.random.default_rng(a.seed+1000*trial+int(sd*100)+{'text':1,'audio':2,'both':3}[modality])
-                    t=dt.clone();aa=ad.clone()
+                    t=td.clone();aa=ad.clone()
                     if modality in ('text','both'):
-                        t=t+torch.tensor(rng.normal(0,sd,size=dt.shape),device=device,dtype=dt.dtype)
+                        t=t+torch.tensor(rng.normal(0,sd,size=td.shape),device=device,dtype=td.dtype)
                     if modality in ('audio','both'):
                         aa=aa+torch.tensor(rng.normal(0,sd,size=ad.shape),device=device,dtype=ad.dtype)
                     with torch.no_grad():prob=torch.sigmoid(model(t,aa,full)).cpu().numpy()
