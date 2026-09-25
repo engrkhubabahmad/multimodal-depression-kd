@@ -78,10 +78,38 @@ class Student(nn.Module):
         return self.head(h).squeeze(1)
 
 
+class ResidualAudio(nn.Module):
+    def __init__(self,dilation):
+        super().__init__()
+        self.layers=nn.Sequential(nn.Conv1d(24,24,3,padding=dilation,dilation=dilation),
+            nn.GroupNorm(4,24),nn.ReLU(),nn.Dropout(.3),
+            nn.Conv1d(24,24,3,padding=1),nn.GroupNorm(4,24))
+    def forward(self,x):
+        return torch.relu(x+self.layers(x))
+
+
+class DeepStudent(nn.Module):
+    def __init__(self,text_dim):
+        super().__init__()
+        self.text=nn.Sequential(nn.Linear(text_dim,48),nn.LayerNorm(48),nn.ReLU(),
+            nn.Dropout(.35),nn.Linear(48,24),nn.ReLU())
+        self.audio=nn.Sequential(nn.Conv1d(130,24,5,padding=2),nn.GroupNorm(4,24),
+            nn.ReLU(),ResidualAudio(2),ResidualAudio(4))
+        self.audio_out=nn.Sequential(nn.Linear(48,24),nn.ReLU(),nn.Dropout(.35))
+        self.head=nn.Sequential(nn.Linear(50,32),nn.ReLU(),nn.Dropout(.4),
+            nn.Linear(32,16),nn.ReLU(),nn.Linear(16,1))
+    def forward(self,t,a,mask):
+        text=self.text(t*mask[:,0:1])*mask[:,0:1]
+        h=self.audio(a*mask[:,1:2,None])
+        audio=self.audio_out(torch.cat([h.mean(-1),h.amax(-1)],dim=1))*mask[:,1:2]
+        return self.head(torch.cat([text,audio,mask],dim=1)).squeeze(1)
+
+
 def main(argv=None):
     ap=argparse.ArgumentParser();ap.add_argument('--experiment',required=True,type=Path)
     ap.add_argument('--seed',type=int,default=103);ap.add_argument('--epochs',type=int,default=100)
-    ap.add_argument('--patience',type=int,default=20);a=ap.parse_args(argv)
+    ap.add_argument('--patience',type=int,default=20)
+    ap.add_argument('--architecture',choices=['compact','deep'],default='compact');a=ap.parse_args(argv)
     if a.epochs<1 or a.patience<1:raise ValueError('Invalid training length')
     exp=a.experiment;data,provenance=inputs(exp,a.seed)
     tr,dv=data['train'],data['val'];y,vy=tr['y'],dv['y']
@@ -93,12 +121,15 @@ def main(argv=None):
     tt,ta,yy,ss,cc=[torch.tensor(z,device=device) for z in (tr['text'],tr['audio'],y.astype('float32'),soft,confidence)]
     vt,va=[torch.tensor(z,device=device) for z in (dv['text'],dv['audio'])]
     positive_weight=torch.tensor([(y==0).sum()/max(1,(y==1).sum())],device=device,dtype=torch.float32)
-    output=exp/'students/canonical_v1/temporal_text_v1';output.mkdir(parents=True,exist_ok=True)
+    output=exp/'students/canonical_v1'/('temporal_text_deep_v1' if a.architecture=='deep' else 'temporal_text_v1')
+    output.mkdir(parents=True,exist_ok=True)
     summary=[];modes=('text_only','audio_only','plain','standard_kd','ra_kd')
     for mode in modes:
         random.seed(a.seed);np.random.seed(a.seed);torch.manual_seed(a.seed)
         if torch.cuda.is_available():torch.cuda.manual_seed_all(a.seed)
-        model=Student(tt.shape[1]).to(device);opt=torch.optim.AdamW(model.parameters(),lr=5e-4,weight_decay=.02)
+        model=(DeepStudent(tt.shape[1]) if a.architecture=='deep' else Student(tt.shape[1])).to(device)
+        opt=torch.optim.AdamW(model.parameters(),lr=3e-4 if a.architecture=='deep' else 5e-4,
+                              weight_decay=.05 if a.architecture=='deep' else .02)
         folder=output/mode;folder.mkdir(parents=True,exist_ok=True)
         best=(-1.,-1.,-1.);stale=0;history=[]
         for epoch in range(1,a.epochs+1):
@@ -120,7 +151,9 @@ def main(argv=None):
                 target=(weights*ss).sum(1)/weights.sum(1).clamp_min(1e-8)
                 loss=.7*hard+.3*nn.functional.binary_cross_entropy_with_logits(z,target.detach())
             else:loss=hard
-            loss.backward();opt.step()
+            loss.backward()
+            if a.architecture=='deep':nn.utils.clip_grad_norm_(model.parameters(),1.)
+            opt.step()
             model.eval()
             valmask=torch.ones((len(vy),2),device=device)
             if mode=='text_only':valmask[:,1]=0
@@ -156,6 +189,7 @@ def main(argv=None):
         print(f'{mode} BEST epoch={state["epoch"]} VAL {results["clean"]}',flush=True)
     pd.DataFrame(summary).to_csv(output/'comparison.csv',index=False)
     provenance.update({'seed':a.seed,'selected_audio_run':selected,'teacher':tinfo,
+        'student_architecture':a.architecture,
         'architecture':'TRAIN transcript TF-IDF/SVD32; temporal Conv1d over 32 bins of ComParE16',
         'modes':modes,'parameters':sum(p.numel() for p in model.parameters()),
         'mask_schedule':'multimodal: 50% both, 25% missing text, 25% missing audio',
