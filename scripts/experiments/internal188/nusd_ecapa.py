@@ -144,7 +144,16 @@ def configure_preprocessor(preprocess_source, daic_root, experiment, metadata_di
     runner = src / "run" / "__main__.py"
     runner_text = runner.read_text()
     runner_text = runner_text.replace("from text import text_file_analysis\n", "")
-    runner_text = runner_text.replace("        text_file_analysis.startup()", "        from text import text_file_analysis\n        text_file_analysis.startup()")
+    runner_text, count = re.subn(
+        r"(?ms)^    if feature_type\[0:4\] == 'text':\n.*?^    print\('Finished Processing'\)",
+        "    if feature_type[0:4] == 'text':\n"
+        "        from text import text_file_analysis\n"
+        "        text_file_analysis.startup()\n"
+        "    else:\n"
+        "        audio_file_analysis.startup()\n\n"
+        "    print('Finished Processing')", runner_text, count=1)
+    if count != 1:
+        raise ValueError("Author runner layout changed; inspect run/__main__.py")
     runner.write_text(runner_text)
     config = src / "config_files" / "config.py"
     text = config.read_text()
