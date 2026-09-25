@@ -33,7 +33,10 @@ def main(argv=None):
     directory = Path(snapshot_download(ADAPTER, revision=info.sha, allow_patterns=allow))
     adapter_config = json.loads((directory / 'adapter_config.json').read_text())
     base = adapter_config.get('base_model_name_or_path', '')
-    if base and base.rstrip('/').split('/')[-1].lower() != EXPECTED_BASE.split('/')[-1].lower():
+    # The published adapter stores a machine-local path with "Audio2", while
+    # the public StepFun repository spells the same model "Audio-2".
+    allowed_names = {'step-audio2-mini-think', 'step-audio-2-mini-think'}
+    if not base or base.rstrip('/').split('/')[-1].lower() not in allowed_names:
         raise ValueError(f'Adapter base differs from expected Step-Audio2 mini Think: {base}')
     declared = json.loads((directory / 'dev_metrics.json').read_text())
     a.output.mkdir(parents=True, exist_ok=True)
