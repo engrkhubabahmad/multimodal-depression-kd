@@ -51,14 +51,12 @@ def prepare_metadata(daic_root, split_dir, output):
     for directory, subdirs, filenames in os.walk(root):
         subdirs[:] = [d for d in subdirs if d not in {"experiments", "tools", ".git"}]
         parent = Path(directory)
-        if not parent.name.endswith("_P"):
-            continue
         for filename in filenames:
             match = re.fullmatch(r"(\d{3})_(AUDIO\.wav|TRANSCRIPT\.csv)", filename, re.IGNORECASE)
             if not match:
                 continue
             pid = int(match.group(1))
-            if pid not in indexed or parent.name != f"{pid:03d}_P":
+            if pid not in indexed:
                 continue
             kind = "audio_path" if match.group(2).lower().endswith(".wav") else "transcript_path"
             if kind in indexed[pid]:
@@ -103,8 +101,8 @@ def _restrict_audio_scanner(source):
             participant_id = int(row["participant_id"])
             audio, transcript = row["audio_path"], row["transcript_path"]
             folder = f"{participant_id:03d}_P"
-            if os.path.basename(os.path.dirname(audio)) != folder or os.path.basename(os.path.dirname(transcript)) != folder:
-                raise ValueError(f"Invalid author audio folder for {participant_id}")
+            if os.path.basename(audio).lower() != f"{participant_id}_audio.wav".lower() or os.path.basename(transcript).lower() != f"{participant_id}_transcript.csv".lower():
+                raise ValueError(f"Invalid TRAIN/DEV filename for {participant_id}")
             folder_list.append(folder)
             audio_paths.append(audio)
             transcript_paths.append(transcript)
@@ -114,8 +112,13 @@ def _restrict_audio_scanner(source):
         path.write_text(text[:start] + body)
     utility = Path(source) / "utils" / "utilities.py"
     utext = utility.read_text()
-    utext = utext.replace("from gensim import corpora", "try:\n    from gensim import corpora\nexcept ImportError:\n    corpora = None  # audio preprocessing does not use text corpora")
+    if "CODEX_NUSD_AUDIO_GENSIM" not in utext:
+        utext = utext.replace("from gensim import corpora", "# CODEX_NUSD_AUDIO_GENSIM\ntry:\n    from gensim import corpora\nexcept ImportError:\n    corpora = None  # audio preprocessing does not use text corpora")
+    utext = utext.replace("trial = i.split('/')[-2]", "trial = os.path.basename(i).split('_')[0]")
     utility.write_text(utext)
+    audio = Path(source) / "audio" / "audio_file_analysis.py"
+    atext = audio.read_text().replace("folder_name = filename.split('/')[-2]", "folder_name = os.path.basename(filename).split('_')[0] + '_P'")
+    audio.write_text(atext)
 
 
 def _replace(pattern, replacement, text, label):
