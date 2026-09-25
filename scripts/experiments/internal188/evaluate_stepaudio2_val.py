@@ -28,6 +28,8 @@ def main(argv=None):
     p.add_argument('--index', type=Path, required=True)
     p.add_argument('--generations', type=Path, required=True)
     p.add_argument('--output', type=Path, required=True)
+    p.add_argument('--allow-undecided-windows', action='store_true',
+                   help='Score only if every participant vote is fixed for all possible missing answers')
     a = p.parse_args(argv)
     marker = json.loads((a.split_dir / 'complete.json').read_text())
     if digest(a.split_dir / 'manifest.csv') != marker['manifest_sha256']:
@@ -57,34 +59,46 @@ def main(argv=None):
             raise ValueError(f'Unknown, changed, or duplicated audio window: {audios[0]}')
         response = row.get('response') or ''
         answer = explicit_yes_no(response)
-        if answer is None:
+        if answer is None and not a.allow_undecided_windows:
             raise ValueError(f'{ref.participant_id}/{ref.chunk_id}: no unique explicit Yes/No answer '
                              f'in {len(response)} response characters; raw response omitted')
         answers[key] = {'participant_id': int(ref.participant_id), 'chunk_id': int(ref.chunk_id),
-                        'label': int(ref.label), 'prediction': int(answer == 'yes'),
+                        'label': int(ref.label), 'prediction': None if answer is None else int(answer == 'yes'),
                         'duration_seconds': float(ref.duration_seconds), 'response': response}
     if set(answers) != set(path_to_window):
         raise ValueError('Incomplete window generation coverage')
     chunks = pd.DataFrame(answers.values()).sort_values(['participant_id', 'chunk_id']).reset_index(drop=True)
     participant_rows = []
     for pid, group in chunks.groupby('participant_id', sort=True):
-        duration = group.duration_seconds.to_numpy()
-        positive_duration = float((duration * group.prediction.to_numpy()).sum())
-        fraction = positive_duration / float(duration.sum())
+        yes = float(group.loc[group.prediction == 1, 'duration_seconds'].sum())
+        no = float(group.loc[group.prediction == 0, 'duration_seconds'].sum())
+        undecided = float(group.loc[group.prediction.isna(), 'duration_seconds'].sum())
+        total = yes + no + undecided
+        lower_fraction, upper_fraction = yes / total, (yes + undecided) / total
+        lower_vote, upper_vote = int(lower_fraction > 0.5), int(upper_fraction > 0.5)
+        if lower_vote != upper_vote:
+            raise ValueError(f'Participant {pid} vote depends on {int(group.prediction.isna().sum())} '
+                             'undecided window(s); no point metric is valid')
         participant_rows.append({'participant_id': int(pid), 'label': int(group.label.iloc[0]),
-                                 'prediction': int(fraction > 0.5), 'yes_duration_fraction': fraction,
-                                 'n_windows': int(len(group)), 'audio_seconds': float(duration.sum()),
-                                 'tie_predicts_no': math.isclose(fraction, 0.5, abs_tol=1e-12)})
+                                 'prediction': lower_vote, 'yes_duration_fraction_lower': lower_fraction,
+                                 'yes_duration_fraction_upper': upper_fraction,
+                                 'n_windows': int(len(group)), 'n_undecided_windows': int(group.prediction.isna().sum()),
+                                 'audio_seconds': total,
+                                 'tie_predicts_no': math.isclose(lower_fraction, 0.5, abs_tol=1e-12)})
     result = pd.DataFrame(participant_rows).sort_values('participant_id').reset_index(drop=True)
     if len(result) != 37 or set(result.participant_id) != set(labels):
         raise ValueError('Incomplete participant-level VAL coverage')
     y = result.label.to_numpy(); pred = result.prediction.to_numpy()
     metrics = {'n': 37, 'n_windows': int(len(chunks)),
+               'n_explicit_windows': int(chunks.prediction.notna().sum()),
+               'n_undecided_windows': int(chunks.prediction.isna().sum()),
+               'participant_votes_invariant_to_undecided': True,
                'accuracy': float(accuracy_score(y, pred)),
                'macro_f1': float(f1_score(y, pred, average='macro', zero_division=0)),
                'depressed_f1': float(f1_score(y, pred, pos_label=1, zero_division=0)),
                'confusion_matrix': confusion_matrix(y, pred, labels=[0, 1]).tolist(),
                'aggregation': 'duration-weighted window Yes fraction; predict Yes only when fraction > 0.5; ties predict No',
+               'undecided_handling': 'Each undecided window may be Yes or No; report a point metric only when both extreme assignments give the same participant vote. No window answer is imputed.',
                'split_sha256': digest(a.split_dir / 'manifest.csv'),
                'generations_sha256': digest(a.generations),
                'probabilities_available': False, 'auroc_available': False,
