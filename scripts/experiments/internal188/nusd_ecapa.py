@@ -334,7 +334,7 @@ def configure_nusd_finetune(nusd_source, daic_root, experiment, metadata_dir,
     return destination
 
 
-def export_validation_predictions(run_dir, output, manifest_path, num_runs):
+def export_validation_predictions(run_dir, output, manifest_path, num_runs, prediction_file=None):
     """Aggregate author crops and released runs into DEV participant probabilities."""
     import pickle
     run, output = Path(run_dir), Path(output)
@@ -344,7 +344,7 @@ def export_validation_predictions(run_dir, output, manifest_path, num_runs):
     result_dir = run / "results_dict_fscore"
     if not result_dir.is_dir():
         raise FileNotFoundError(f"F1-selected NUSD outputs missing under {result_dir}; run original test --validate first")
-    files = sorted(result_dir.glob("*.pickle"), key=lambda p: int(p.stem))
+    files = [Path(prediction_file)] if prediction_file is not None else sorted(result_dir.glob("*.pickle"), key=lambda p: int(p.stem))
     if len(files) != num_runs:
         raise ValueError(f"Expected {num_runs} NUSD result files, found {len(files)} in {result_dir}")
     frame = expected.copy()
