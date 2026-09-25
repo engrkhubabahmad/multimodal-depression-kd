@@ -23,7 +23,7 @@ def temporal_array(path,bins=32):
     return pooled
 
 
-def inputs(exp,seed):
+def inputs(exp,seed,return_preprocessor=False):
     split=pd.read_csv(exp/'split/manifest.csv')
     if split.split.value_counts().to_dict()!={'train':107,'val':34,'student_test':47}:
         raise ValueError('Expected canonical TRAIN-107/DEV-34/TEST-47')
@@ -61,6 +61,9 @@ def inputs(exp,seed):
         'coverage_sha256':digest(exp/'coverage/participant_manifest.csv'),
         'split_sha256':digest(exp/'split/manifest.csv'),
         'source_files':paths,'test_opened':False}
+    if return_preprocessor:
+        return data,provenance,{'vectorizer':vectorizer,'svd':svd,
+            'text_scaler':text_scaler,'audio_scaler':audio_scaler,'audio_bins':32}
     return data,provenance
 
 
