@@ -63,12 +63,9 @@ def evaluate(y,p):
 
 def main(argv=None):
     p=argparse.ArgumentParser();p.add_argument('--experiment',type=Path,required=True)
-    p.add_argument('--seed',type=int,default=103)
-    p.add_argument('--text-target',choices=['inductive','author_docs'],default='inductive')
-    a=p.parse_args(argv);exp=a.experiment
+    p.add_argument('--seed',type=int,default=103);a=p.parse_args(argv);exp=a.experiment
     base=exp/'students/canonical_v1';textdir=base/'temporal_text_deep_v1/text_only'
-    audiodir=base/'temporal_text_v1/audio_only'
-    teacher_dir=exp/'teachers'/('idiap_text_author_docs_v1' if a.text_target=='author_docs' else 'idiap_text_inductive_v1')
+    audiodir=base/'temporal_text_v1/audio_only';teacher_dir=exp/'teachers/idiap_text_inductive_v1'
     for file in [textdir/'best.pt',audiodir/'best.pt',teacher_dir/'train_targets.csv',teacher_dir/'audit.json']:
         if not file.is_file():raise FileNotFoundError(f'Required completed stage missing: {file}')
     for parent in [textdir.parent,audiodir.parent]:
@@ -105,9 +102,7 @@ def main(argv=None):
     teacher_audit=json.loads((teacher_dir/'audit.json').read_text())
     if teacher_audit['split_sha256']!=digest(exp/'split/manifest.csv') or teacher_audit['test_opened']:
         raise ValueError('Text teacher target provenance does not match split')
-    if a.text_target=='author_docs' and teacher_audit['dev_checkpoint_tfidf_max_abs_difference']>1e-6:
-        raise ValueError('Author DEV features did not reproduce')
-    output=base/('preserved_experts_author_text_v1' if a.text_target=='author_docs' else 'preserved_experts_v1')
+    output=base/'preserved_experts_v1'
     output.mkdir(parents=True,exist_ok=True)
     # Persist preprocessing and pruned expert weights for later reproducible deployment/evaluation.
     joblib.dump(preprocessor,output/'preprocessing.joblib')
@@ -169,7 +164,7 @@ def main(argv=None):
     provenance.update({'architecture':'pruned deep text expert and compact temporal audio expert, frozen; three-parameter probability fusion gate',
         'source_checkpoint_sha256':{str(d/'best.pt'):digest(d/'best.pt') for d in [textdir,audiodir]},
         'teacher_targets_sha256':{str(f):digest(f) for f in [teacher_dir/'train_targets.csv',audio_target]},
-        'teacher_inference_audit':teacher_audit,'text_target_source':a.text_target,
+        'teacher_inference_audit':teacher_audit,'text_target_source':'local transcript inductive',
         'reproduction':reproduction,'gate_parameters':3,'gate_selection':'TRAIN objective only',
         'teacher_weights_updated':False,'expert_weights_updated':False,'out_of_fold':False,
         'limitation':'Expert checkpoints were selected using DEV in earlier experiments. Overall DEV results remain exploratory. Gate fits TRAIN in-sample predictions; no generalization guarantee.',
