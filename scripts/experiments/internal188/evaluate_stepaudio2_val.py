@@ -44,12 +44,19 @@ def main(argv=None):
         ref = path_to_window.get(key)
         if ref is None or key in answers:
             raise ValueError(f'Unknown, changed, or duplicated audio window: {audios[0]}')
-        response = row.get('response')
-        match = re.match(r'^\s*(?:<[^>\r\n]{1,32}>\s*)*(yes|no)\b', response or '', flags=re.IGNORECASE)
-        if not match:
-            raise ValueError(f'{ref.participant_id}/{ref.chunk_id}: ambiguous first answer: {str(response)[:120]!r}')
+        response = row.get('response') or ''
+        candidates = []
+        leading = re.match(r'^\s*(?:<[^>\r\n]{1,32}>\s*)*(yes|no)\b', response, flags=re.IGNORECASE)
+        if leading:
+            candidates.append(leading.group(1).lower())
+        # Step-Audio2 may emit private reasoning before its explicit English answer marker.
+        candidates.extend(x.lower() for x in re.findall(r'<英语>\s*(yes|no)\b', response, flags=re.IGNORECASE))
+        if len(set(candidates)) != 1:
+            raise ValueError(f'{ref.participant_id}/{ref.chunk_id}: no unique explicit Yes/No answer; '
+                             f'response starts {response[:120]!r}')
+        answer = candidates[0]
         answers[key] = {'participant_id': int(ref.participant_id), 'chunk_id': int(ref.chunk_id),
-                        'label': int(ref.label), 'prediction': int(match.group(1).lower() == 'yes'),
+                        'label': int(ref.label), 'prediction': int(answer == 'yes'),
                         'duration_seconds': float(ref.duration_seconds), 'response': response}
     if set(answers) != set(path_to_window):
         raise ValueError('Incomplete window generation coverage')
