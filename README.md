@@ -55,3 +55,11 @@ Every reproduction starts in a brand-new folder:
 Historical experiment folders are read-only reference material and are never overwritten.
 
 Run notebooks in numerical order.
+
+## Git result packages
+
+After notebooks 00–05 succeed, notebook 06 verifies the frozen targets and automatically publishes a compact, independently checkable result package to:
+
+`results/<run_id>/`
+
+Each result package includes the DEV-34 participant predictions, comparative metrics table, confusion matrices (CSV + PNG), classification reports (CSV + JSON), source metric/audit JSON, and run provenance. Large checkpoints/features remain only in the fresh Drive run folder.
