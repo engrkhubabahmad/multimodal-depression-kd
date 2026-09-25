@@ -5,6 +5,7 @@ import shlex
 from pathlib import Path
 
 import pandas as pd
+from tqdm.auto import tqdm
 
 from scripts.teachers.ussd_audio.common import extract_participant_wav, one
 from .split import digest
@@ -36,7 +37,8 @@ def main(argv=None):
     dataset = a.output / ('pilot.jsonl' if a.pilot_only else 'val.jsonl')
     index = a.output / ('pilot_index.csv' if a.pilot_only else 'val_index.csv')
     records = []; references = []
-    for row in val.itertuples(index=False):
+    for row in tqdm(val.itertuples(index=False), total=len(val),
+                    desc='Step-Audio2 VAL audio', colour='green'):
         pid = int(row.participant_id)
         transcript = Path(coverage.loc[pid, 'transcript_path'])
         if not transcript.is_file(): raise FileNotFoundError(transcript)
