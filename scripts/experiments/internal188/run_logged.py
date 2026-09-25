@@ -4,10 +4,10 @@ from collections import deque
 from pathlib import Path
 
 
-def run(command, log_path, cwd=None):
+def run(command, log_path, cwd=None, env=None):
     log_path = Path(log_path); log_path.parent.mkdir(parents=True, exist_ok=True)
     tail = deque(maxlen=35)
-    with log_path.open('w') as log, subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE,
+    with log_path.open('w') as log, subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE,
                                                      stderr=subprocess.STDOUT, text=True,
                                                      bufsize=1) as process:
         for line in process.stdout:
