@@ -35,8 +35,16 @@ def make_audio_chunks(source: Path, output_dir: Path, participant_id: int, secon
             frames = wav.readframes(count)
             if len(frames) != count * channels * width:
                 raise IOError(f'{source}: incomplete audio read at frame {start}')
-            with wave.open(str(path), 'wb') as out:
-                out.setnchannels(channels); out.setsampwidth(width); out.setframerate(rate); out.writeframes(frames)
+            if path.exists():
+                with wave.open(str(path), 'rb') as cached:
+                    valid = (cached.getnchannels() == channels and cached.getsampwidth() == width
+                             and cached.getframerate() == rate and cached.getnframes() == count
+                             and cached.readframes(count) == frames)
+                if not valid:
+                    raise ValueError(f'Cached audio window differs from source: {path}')
+            else:
+                with wave.open(str(path), 'wb') as out:
+                    out.setnchannels(channels); out.setsampwidth(width); out.setframerate(rate); out.writeframes(frames)
             rows.append({'participant_id': participant_id, 'chunk_id': chunk_id,
                          'chunk_start_seconds': start / rate, 'duration_seconds': count / rate,
                          'audio_path': str(path), 'audio_sha256': digest(path)})
@@ -84,12 +92,14 @@ def main(argv=None):
             extract_participant_wav(raw, transcript, wav)
         if not wav.is_file() or wav.stat().st_size < 44:
             raise ValueError(f'Empty speech WAV: {pid}')
+        transcript_sha = digest(transcript)
+        raw_audio_sha = digest(raw)
         pieces = make_audio_chunks(wav, chunk_dir, pid, a.chunk_seconds)
         for piece in pieces:
             records.append({'messages': [{'role': 'user', 'content': '<audio>' + PROMPT}],
                             'audios': [piece['audio_path']]})
             references.append({**piece, 'label': int(row.label), 'split': 'val',
-                               'transcript_sha256': digest(transcript), 'raw_audio_sha256': digest(raw)})
+                               'transcript_sha256': transcript_sha, 'raw_audio_sha256': raw_audio_sha})
     content = ''.join(json.dumps(r) + '\n' for r in records)
     reference = pd.DataFrame(references).sort_values(['participant_id', 'chunk_id']).reset_index(drop=True)
     if dataset.exists() and dataset.read_text() != content:
