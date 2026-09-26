@@ -187,6 +187,35 @@ def main(argv=None):
     model=InductText(250).to(device); opt=torch.optim.AdamW(model.parameters(),lr=pub["learning_rate"])
     cw=torch.tensor(compute_class_weight(class_weight="balanced",classes=np.array([0,1]),y=ytr),dtype=torch.float32,device=device)
     loss_fn=nn.CrossEntropyLoss(weight=cw); best=(-1.,-1.,-1.); best_epoch=0; ckpt=out/"best.pt"; hist=[]
+
+    # Save/evaluate random initialization explicitly as epoch 0.
+    # Idiap DEV inference reuses H_1_words from a dropout-active TRAIN forward,
+    # so snapshot and restore RNG states to keep subsequent training unchanged.
+    cpu_rng=torch.get_rng_state()
+    cuda_rng=torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+    model.train()
+    with torch.no_grad():
+        _,_=model.train_repr_logits(A,conv0)
+        H0=model.H_1_words.detach().clone()
+        model.eval()
+        Rd0,zd0=model.dev_repr_logits(Xdv,H0)
+        pdv0=torch.softmax(zd0,1).cpu().numpy()
+    epoch0_metrics=metrics(ydv,pdv0)
+    torch.save({"model_state_dict":model.state_dict(),"H_1_words":H0.cpu(),
+                "epoch":0,"selection_eligible":False,"published_hparams":pub},out/"epoch0.pt")
+    pd.DataFrame({
+        "participant_id":dv.participant_id.to_numpy(int),
+        "label":ydv,
+        "probability":pdv0[:,1],
+        "prediction":pdv0.argmax(1),
+    }).to_csv(out/"epoch0_dev_predictions.csv",index=False)
+    (out/"epoch0_metrics.json").write_text(json.dumps({
+        "epoch":0,"selection_eligible":False,"dev34":epoch0_metrics,
+        "seed":a.seed,"test_opened":False
+    },indent=2)+"\n")
+    torch.set_rng_state(cpu_rng)
+    if cuda_rng is not None: torch.cuda.set_rng_state_all(cuda_rng)
+    model.H_1_words=None
     print("TEXT v3 InducT-style | params:",sum(p.numel() for p in model.parameters()),"| published study:",pub)
     for epoch in range(1,pub["num_steps"]+1):
         model.train(); opt.zero_grad(set_to_none=True); R,z=model.train_repr_logits(A,conv0); loss=loss_fn(z[250:],yy); loss.backward(); opt.step()
@@ -254,7 +283,10 @@ def main(argv=None):
     protocol={"mode":"hard-label text branch pretraining","architecture":"InducT-style original top250; independently trained weights","train_participants":107,"dev_participants":34,
               "participant_440_excluded":True,"teacher_checkpoint_loaded":False,"teacher_vectorizer_loaded":False,
               "published_optuna_hparams_reused":True,"author_stateful_H1_words_behavior":True,
+              "epoch0_saved":True,"epoch0_selection_eligible":False,
               "vocabulary_overlap_audit":vocab_audit,"best_epoch":best_epoch,"test_opened":False}
-    (out/"metrics.json").write_text(json.dumps({"train":mt,"dev34":md,"protocol":protocol},indent=2)+"\n")
+    (out/"metrics.json").write_text(json.dumps({
+        "train":mt,"dev34":md,"epoch0_dev34":epoch0_metrics,"protocol":protocol
+    },indent=2)+"\n")
     print("\nBEST TEXT-BRANCH DEV-34:",json.dumps(md,indent=2)); print("best_epoch:",best_epoch,"| TEST CLOSED.")
 if __name__=="__main__": main()
