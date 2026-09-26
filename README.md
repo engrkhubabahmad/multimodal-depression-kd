@@ -65,14 +65,21 @@ After notebooks 00–05 succeed, notebook 06 verifies the frozen targets and aut
 Each result package includes the DEV-34 participant predictions, comparative metrics table, confusion matrices (CSV + PNG at 600 DPI + PDF at 600 DPI), classification reports (CSV + JSON), source metric/audit JSON, and run provenance. Large checkpoints/features remain only in the fresh Drive run folder.
 
 
-## Epoch-0 audit models
+## Teacher epoch-0 selection
 
-The v3 text and audio branch notebooks save their random initialization before any optimizer update:
+For both external teachers, **epoch 0 means the original published/released checkpoint before any local fine-tuning**.
 
-- `epoch0.pt`
-- `epoch0_metrics.json`
-- `epoch0_dev_predictions.csv`
+- IDIAP text teacher: original published InducT-GCN checkpoint.
+- USSD audio teacher: original released run-4 `md_35_epochs.pth` checkpoint.
 
-Epoch 0 is diagnostic only and is never eligible for DEV checkpoint selection. The final Git result package also includes these two compact epoch-0 `.pt` checkpoints, their predictions, metrics, classification reports, and 600-DPI confusion matrices.
+Selection always starts from epoch 0. A fine-tuned teacher may replace it only if it strictly improves the fixed DEV lexicographic key:
 
-For exact v3 audio reproduction, the locked recipe is batch size **20**, seed **1300**, and historical selected epoch **51**. Notebook 04 refuses to start fusion unless the audio branch matches the frozen DEV-34 result (Macro-F1 0.6222, depressed F1 0.4444, AUROC 0.5257, CM [[20,3],[7,4]]).
+1. Macro-F1
+2. Depressed-class F1
+3. AUROC
+
+If fine-tuning does not improve that key, the original epoch-0 teacher remains selected. The selected TRAIN KD targets are exposed through `selected_train_kd_targets.csv`, and Standard KD reads those selected aliases rather than assuming a fine-tuned model.
+
+The compact v3 student branches are separate architectures. Their untrained state is saved only as `random_init.*` diagnostics and is never called the original teacher epoch 0.
+
+For exact v3 audio-branch reproduction, the locked compact-student recipe remains batch size **20**, seed **1300**, and historical selected epoch **51**. Notebook 04 refuses to start fusion unless that frozen audio-branch result is reproduced.
