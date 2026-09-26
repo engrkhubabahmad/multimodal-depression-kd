@@ -1,0 +1,41 @@
+{
+  "teacher": "idiap participant InducT-GCN top250",
+  "train_view": "checkpoint training graph document nodes; in-sample KD targets",
+  "dev_view": "checkpoint saved A_dev; participant 440 excluded",
+  "train_participants": 107,
+  "dev_participants": 34,
+  "test_opened": false,
+  "author_local_train_label_mismatches": [],
+  "train_in_sample": {
+    "n": 107,
+    "accuracy": 0.6915887850467289,
+    "macro_f1": 0.684534977217904,
+    "auroc": 0.9415584415584416,
+    "confusion_matrix": [
+      [
+        45,
+        32
+      ],
+      [
+        1,
+        29
+      ]
+    ]
+  },
+  "dev34": {
+    "n": 34,
+    "accuracy": 0.8529411764705882,
+    "macro_f1": 0.8418604651162791,
+    "auroc": 0.782608695652174,
+    "confusion_matrix": [
+      [
+        19,
+        4
+      ],
+      [
+        1,
+        10
+      ]
+    ]
+  }
+}

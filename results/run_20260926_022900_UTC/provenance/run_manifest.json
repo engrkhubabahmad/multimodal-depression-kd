@@ -1,0 +1,11 @@
+{
+  "run_id": "run_20260926_022900_UTC",
+  "purpose": "exact frozen-v3 TRAIN107 DEV34 Standard-KD reproduction",
+  "core_commit": "29087f39a46ddf756b6a082ff7148cf90e336ca7",
+  "train_participants": 107,
+  "dev_participants": 34,
+  "excluded_dev_participant": 440,
+  "test_policy": "NEVER OPEN OR SCORE TEST",
+  "python": "3.13.15 (main, Aug  6 2026, 11:06:22) [GCC 13.3.0]",
+  "platform": "Linux-6.6.122+-x86_64-with-glibc2.39"
+}

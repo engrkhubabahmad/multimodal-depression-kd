@@ -1,0 +1,77 @@
+{
+  "train": {
+    "n": 107,
+    "accuracy": 0.6635514018691588,
+    "macro_f1": 0.6585106382978723,
+    "depressed_f1": 0.6170212765957447,
+    "auroc": 0.8987012987012987,
+    "confusion_matrix": [
+      [
+        42,
+        35
+      ],
+      [
+        1,
+        29
+      ]
+    ]
+  },
+  "dev34": {
+    "n": 34,
+    "accuracy": 0.7941176470588235,
+    "macro_f1": 0.7850045167118338,
+    "depressed_f1": 0.7407407407407407,
+    "auroc": 0.8063241106719368,
+    "confusion_matrix": [
+      [
+        17,
+        6
+      ],
+      [
+        1,
+        10
+      ]
+    ]
+  },
+  "random_init_dev34": {
+    "n": 34,
+    "accuracy": 0.5,
+    "macro_f1": 0.49956709956709955,
+    "depressed_f1": 0.5142857142857142,
+    "auroc": 0.7351778656126482,
+    "confusion_matrix": [
+      [
+        8,
+        15
+      ],
+      [
+        2,
+        9
+      ]
+    ]
+  },
+  "protocol": {
+    "mode": "hard-label text branch pretraining",
+    "architecture": "InducT-style original top250; independently trained weights",
+    "train_participants": 107,
+    "dev_participants": 34,
+    "participant_440_excluded": true,
+    "teacher_checkpoint_loaded": false,
+    "teacher_vectorizer_loaded": false,
+    "published_optuna_hparams_reused": true,
+    "author_stateful_H1_words_behavior": true,
+    "random_init_saved": true,
+    "random_init_selection_eligible": false,
+    "vocabulary_overlap_audit": {
+      "teacher_vectorizer_found": true,
+      "teacher_vectorizer_source": "local cached Idiap clone",
+      "our_vocab": 250,
+      "teacher_vocab": 250,
+      "overlap": 250,
+      "overlap_fraction": 1.0,
+      "jaccard": 1.0
+    },
+    "best_epoch": 999,
+    "test_opened": false
+  }
+}

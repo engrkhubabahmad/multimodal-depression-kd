@@ -1,0 +1,117 @@
+{
+  "train": {
+    "n": 107,
+    "accuracy": 0.6261682242990654,
+    "macro_f1": 0.6080586080586081,
+    "depressed_f1": 0.5238095238095238,
+    "auroc": 0.7489177489177489,
+    "confusion_matrix": [
+      [
+        45,
+        32
+      ],
+      [
+        8,
+        22
+      ]
+    ]
+  },
+  "dev34": {
+    "n": 34,
+    "accuracy": 0.7352941176470589,
+    "macro_f1": 0.7043478260869566,
+    "depressed_f1": 0.6086956521739131,
+    "auroc": 0.7470355731225297,
+    "confusion_matrix": [
+      [
+        18,
+        5
+      ],
+      [
+        4,
+        7
+      ]
+    ]
+  },
+  "protocol": {
+    "mode": "No-KD multimodal v3",
+    "branch_policy": "frozen pretrained hard-label branches; fusion head only trainable",
+    "audio_branch": "v3 author-recipe compressed hard-label segment branch; best checkpoint embeddings",
+    "text_branch": "v3 independent InducT-style top250 hard-label branch; best checkpoint embeddings",
+    "train_participants": 107,
+    "dev_participants": 34,
+    "participant_440_excluded": true,
+    "input_standardization": "per-dimension mean/std fit on TRAIN-107 embeddings only",
+    "train_class_weight_source": "TRAIN-107 only",
+    "pos_weight": 2.566666666666667,
+    "fusion": "audio256->96; text64->96; [a,t,a*t,abs(a-t)] 384->64->1",
+    "fusion_params": 55617,
+    "audio_branch_params": 182529,
+    "text_branch_params": 16128,
+    "full_student_params": 254274,
+    "optimizer": "AdamW",
+    "lr": 0.0002,
+    "weight_decay": 0.0005,
+    "batch_size": 8,
+    "checkpoint_selection": "DEV-34 macro-F1, then depressed-F1, then AUROC",
+    "threshold": 0.5,
+    "threshold_search": false,
+    "best_epoch": 1,
+    "teacher_targets_used": false,
+    "teacher_checkpoint_loaded": false,
+    "test_opened": false
+  },
+  "source_branch_metrics": {
+    "text_dev34": {
+      "n": 34,
+      "accuracy": 0.7941176470588235,
+      "macro_f1": 0.7850045167118338,
+      "depressed_f1": 0.7407407407407407,
+      "auroc": 0.8063241106719368,
+      "confusion_matrix": [
+        [
+          17,
+          6
+        ],
+        [
+          1,
+          10
+        ]
+      ]
+    },
+    "audio_dev34": {
+      "n": 34,
+      "mean_probability": {
+        "accuracy": 0.6764705882352942,
+        "macro_f1": 0.5686274509803921,
+        "depressed_f1": 0.35294117647058826,
+        "confusion_matrix": [
+          [
+            20,
+            3
+          ],
+          [
+            8,
+            3
+          ]
+        ]
+      },
+      "majority_vote": {
+        "accuracy": 0.7058823529411765,
+        "macro_f1": 0.6222222222222222,
+        "depressed_f1": 0.4444444444444444,
+        "confusion_matrix": [
+          [
+            20,
+            3
+          ],
+          [
+            7,
+            4
+          ]
+        ]
+      },
+      "auroc_soft_mean_probability": 0.5256916996047432
+    }
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "status": "PASS",
+  "run_id": "run_20260926_022900_UTC",
+  "core_commit": "0d6ac621be7da1db7c1d769d075d142d0a740fd8",
+  "protocol": "TRAIN-107 / DEV-34; participant 440 excluded",
+  "test_accessed": false,
+  "threshold": 0.5,
+  "standard_kd": {
+    "temperature": 2.0,
+    "kd_weight": 0.5,
+    "seed": 103
+  },
+  "results": [
+    {
+      "Model": "IDIAP text teacher - epoch 0 original",
+      "N": 34,
+      "Accuracy": 0.8529411764705882,
+      "Balanced Accuracy": 0.8675889328063241,
+      "Macro-F1": 0.8418604651162791,
+      "Depressed F1": 0.8,
+      "AUROC": 0.782608695652174,
+      "TN": 19,
+      "FP": 4,
+      "FN": 1,
+      "TP": 10
+    },
+    {
+      "Model": "USSD audio teacher - epoch 0 original",
+      "N": 34,
+      "Accuracy": 0.8235294117647058,
+      "Balanced Accuracy": 0.7747035573122529,
+      "Macro-F1": 0.7875,
+      "Depressed F1": 0.7,
+      "AUROC": 0.6363636363636365,
+      "TN": 21,
+      "FP": 2,
+      "FN": 4,
+      "TP": 7
+    },
+    {
+      "Model": "v3 text branch",
+      "N": 34,
+      "Accuracy": 0.7941176470588235,
+      "Balanced Accuracy": 0.8241106719367588,
+      "Macro-F1": 0.7850045167118338,
+      "Depressed F1": 0.7407407407407407,
+      "AUROC": 0.8063241106719368,
+      "TN": 17,
+      "FP": 6,
+      "FN": 1,
+      "TP": 10
+    },
+    {
+      "Model": "v3 audio branch",
+      "N": 34,
+      "Accuracy": 0.7058823529411765,
+      "Balanced Accuracy": 0.616600790513834,
+      "Macro-F1": 0.6222222222222222,
+      "Depressed F1": 0.4444444444444444,
+      "AUROC": 0.5256916996047432,
+      "TN": 20,
+      "FP": 3,
+      "FN": 7,
+      "TP": 4
+    },
+    {
+      "Model": "No-KD multimodal",
+      "N": 34,
+      "Accuracy": 0.7352941176470589,
+      "Balanced Accuracy": 0.7094861660079052,
+      "Macro-F1": 0.7043478260869566,
+      "Depressed F1": 0.6086956521739131,
+      "AUROC": 0.7470355731225297,
+      "TN": 18,
+      "FP": 5,
+      "FN": 4,
+      "TP": 7
+    },
+    {
+      "Model": "Standard KD",
+      "N": 34,
+      "Accuracy": 0.7352941176470589,
+      "Balanced Accuracy": 0.7569169960474309,
+      "Macro-F1": 0.7235772357723578,
+      "Depressed F1": 0.6666666666666666,
+      "AUROC": 0.766798418972332,
+      "TN": 16,
+      "FP": 7,
+      "FN": 2,
+      "TP": 9
+    }
+  ]
+}

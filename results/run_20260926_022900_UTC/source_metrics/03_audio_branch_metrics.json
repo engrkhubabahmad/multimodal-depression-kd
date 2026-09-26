@@ -1,0 +1,138 @@
+{
+  "train_full": {
+    "n": 107,
+    "mean_probability": {
+      "accuracy": 0.6915887850467289,
+      "macro_f1": 0.5197878416972664,
+      "depressed_f1": 0.23255813953488372,
+      "confusion_matrix": [
+        [
+          69,
+          8
+        ],
+        [
+          25,
+          5
+        ]
+      ]
+    },
+    "majority_vote": {
+      "accuracy": 0.6915887850467289,
+      "macro_f1": 0.4826373626373626,
+      "depressed_f1": 0.15384615384615385,
+      "confusion_matrix": [
+        [
+          71,
+          6
+        ],
+        [
+          27,
+          3
+        ]
+      ]
+    },
+    "auroc_soft_mean_probability": 0.6112554112554114
+  },
+  "dev34": {
+    "n": 34,
+    "mean_probability": {
+      "accuracy": 0.6764705882352942,
+      "macro_f1": 0.5686274509803921,
+      "depressed_f1": 0.35294117647058826,
+      "confusion_matrix": [
+        [
+          20,
+          3
+        ],
+        [
+          8,
+          3
+        ]
+      ]
+    },
+    "majority_vote": {
+      "accuracy": 0.7058823529411765,
+      "macro_f1": 0.6222222222222222,
+      "depressed_f1": 0.4444444444444444,
+      "confusion_matrix": [
+        [
+          20,
+          3
+        ],
+        [
+          7,
+          4
+        ]
+      ]
+    },
+    "auroc_soft_mean_probability": 0.5256916996047432
+  },
+  "random_init_dev34": {
+    "n": 34,
+    "mean_probability": {
+      "accuracy": 0.6764705882352942,
+      "macro_f1": 0.40350877192982454,
+      "depressed_f1": 0.0,
+      "confusion_matrix": [
+        [
+          23,
+          0
+        ],
+        [
+          11,
+          0
+        ]
+      ]
+    },
+    "majority_vote": {
+      "accuracy": 0.7058823529411765,
+      "macro_f1": 0.494047619047619,
+      "depressed_f1": 0.16666666666666666,
+      "confusion_matrix": [
+        [
+          23,
+          0
+        ],
+        [
+          10,
+          1
+        ]
+      ]
+    },
+    "auroc_soft_mean_probability": 0.6561264822134387
+  },
+  "protocol": {
+    "mode": "hard-label audio branch pretraining",
+    "architecture": "ComParE16 Conv128 + LSTM128x1",
+    "train_participants": 107,
+    "dev_participants": 34,
+    "participant_440_excluded": true,
+    "author_commit": "c3e68649153004ed2174878a1c54c716ad26cfd7",
+    "author_normalization_reused": true,
+    "normalization_sha256": "44d0516929fe893c2020fbcb0b7d1e521ab94758286899e0151e27b4a2c7790d",
+    "teacher_checkpoint_loaded": false,
+    "crop_frames": 6662,
+    "crop_seed": 1300,
+    "segmentation_frames": 384,
+    "padding_then_normalization": true,
+    "class_balance": "author run-4 SUB_SAMPLE_ND_CLASS: fixed 468 segments/class from deterministic TRAIN crop; no class weights",
+    "optimizer": "Adam",
+    "initial_lr": 0.003,
+    "weight_decay": 0.0,
+    "batch_size": 20,
+    "requested_epochs": 100,
+    "patience": 20,
+    "completed_epochs": 71,
+    "stop_reason": "early_stop",
+    "exact_v3": true,
+    "lr_schedule": "x0.9 every 2 epochs",
+    "checkpoint_selection": "DEV-34 participant majority-vote macro-F1, then depressed-F1, then soft-mean AUROC",
+    "random_init_saved": true,
+    "random_init_selection_eligible": false,
+    "threshold_search": false,
+    "best_epoch": 51,
+    "test_opened": false
+  },
+  "params": 182529,
+  "peak_cuda_mb": 257.47314453125
+}

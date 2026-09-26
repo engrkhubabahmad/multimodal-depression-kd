@@ -1,0 +1,70 @@
+{
+  "protocol": "frozen author checkpoint; no fitting; DEV-34 only",
+  "author_commit": "c3e68649153004ed2174878a1c54c716ad26cfd7",
+  "author_run": 4,
+  "checkpoint": "md_35_epochs.pth",
+  "checkpoint_sha256": "497ba1396f2e424dcbd5bc1dcf1f6636649d4681b30903ff03f6f8cbc4869e56",
+  "checkpoint_epoch": 35,
+  "normalization_artifact": "data_saver.pickle",
+  "normalization_sha256": "44d0516929fe893c2020fbcb0b7d1e521ab94758286899e0151e27b4a2c7790d",
+  "preprocessing_manifest": "/content/drive/MyDrive/DAIC_WOZ/experiments/ussd_compare16/preprocessing_dev.json",
+  "compare16_config_sha256": "4baf8b75324db30e632a2935ab469058d54cd1c7b1806d5cc220dc7b124c454c",
+  "smile_banner": " ",
+  "input_shape": [
+    "N",
+    130,
+    384
+  ],
+  "native_output": "sigmoid depression probability",
+  "exposed_output": "pre-sigmoid logit + sigmoid probability",
+  "author_aggregation": "np.rint per segment -> participant vote fraction -> np.rint",
+  "kd_soft_aggregation": "mean segment probability; participant logit=logit(mean probability)",
+  "author_canonical_dev35_macro_f1_reference_only": 0.8011363636363635,
+  "local_dev34": {
+    "n": 34,
+    "accuracy": 0.8235294117647058,
+    "macro_f1": 0.7875,
+    "confusion_matrix": [
+      [
+        21,
+        2
+      ],
+      [
+        4,
+        7
+      ]
+    ],
+    "classification_report": {
+      "0": {
+        "precision": 0.84,
+        "recall": 0.9130434782608695,
+        "f1-score": 0.875,
+        "support": 23.0
+      },
+      "1": {
+        "precision": 0.7777777777777778,
+        "recall": 0.6363636363636364,
+        "f1-score": 0.7,
+        "support": 11.0
+      },
+      "accuracy": 0.8235294117647058,
+      "macro avg": {
+        "precision": 0.8088888888888889,
+        "recall": 0.7747035573122529,
+        "f1-score": 0.7875,
+        "support": 34.0
+      },
+      "weighted avg": {
+        "precision": 0.8198692810457517,
+        "recall": 0.8235294117647058,
+        "f1-score": 0.8183823529411764,
+        "support": 34.0
+      }
+    },
+    "segment_hardening": "numpy.rint(probability); author majority vote",
+    "nominal_threshold": 0.5,
+    "auroc_soft_mean_probability": 0.6363636363636365
+  },
+  "participant_440_excluded": true,
+  "test_opened": false
+}

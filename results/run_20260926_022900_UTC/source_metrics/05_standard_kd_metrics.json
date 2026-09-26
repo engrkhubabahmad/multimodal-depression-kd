@@ -1,0 +1,86 @@
+{
+  "train": {
+    "n": 107,
+    "accuracy": 0.719626168224299,
+    "macro_f1": 0.7083938953488372,
+    "depressed_f1": 0.6511627906976745,
+    "auroc": 0.906926406926407,
+    "confusion_matrix": [
+      [
+        49,
+        28
+      ],
+      [
+        2,
+        28
+      ]
+    ]
+  },
+  "dev34": {
+    "n": 34,
+    "accuracy": 0.7352941176470589,
+    "macro_f1": 0.7235772357723578,
+    "depressed_f1": 0.6666666666666666,
+    "auroc": 0.766798418972332,
+    "confusion_matrix": [
+      [
+        16,
+        7
+      ],
+      [
+        2,
+        9
+      ]
+    ]
+  },
+  "protocol": {
+    "mode": "Standard KD multimodal v3",
+    "backbone_reference": "/content/drive/MyDrive/DAIC_WOZ/experiments/exact_v3_reproduction/run_20260926_022900_UTC/04_no_kd",
+    "same_frozen_branch_embeddings": true,
+    "same_train_only_standardizers": true,
+    "same_fusion_architecture": true,
+    "same_optimizer_hparams": true,
+    "train_participants": 107,
+    "dev_participants": 34,
+    "participant_440_excluded": true,
+    "seed": 103,
+    "initial_state_sha256": "59ccea45045a7746e770f8372b56ce43b8eececa2f549f72ee7a20188c731c3f",
+    "fusion_params": 55617,
+    "full_student_params": 254274,
+    "optimizer": "AdamW",
+    "lr": 0.0002,
+    "weight_decay": 0.0005,
+    "batch_size": 8,
+    "dropout": 0.35,
+    "hard_loss": "TRAIN-only class-weighted BCEWithLogitsLoss",
+    "pos_weight": 2.566666666666667,
+    "kd_loss": "T^2 * BCEWithLogits(student_logit/T, equal-weight normalized teacher soft target)",
+    "kd_weight": 0.5,
+    "temperature": 2.0,
+    "teacher_logit_scaling": "per modality median_TRAIN(abs(logit)); no DEV-derived scale",
+    "teacher_combination": "equal 0.5 audio + 0.5 text after scale normalization",
+    "checkpoint_selection": "DEV-34 macro-F1, then depressed-F1, then AUROC",
+    "threshold": 0.5,
+    "threshold_search": false,
+    "best_epoch": 2,
+    "dev_teacher_targets_used_for_training": false,
+    "test_opened": false
+  },
+  "no_kd_reference_dev34": {
+    "n": 34,
+    "accuracy": 0.7352941176470589,
+    "macro_f1": 0.7043478260869566,
+    "depressed_f1": 0.6086956521739131,
+    "auroc": 0.7470355731225297,
+    "confusion_matrix": [
+      [
+        18,
+        5
+      ],
+      [
+        4,
+        7
+      ]
+    ]
+  }
+}

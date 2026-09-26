@@ -1,0 +1,62 @@
+{
+  "IDIAP text teacher - epoch 0 original": [
+    [
+      19,
+      4
+    ],
+    [
+      1,
+      10
+    ]
+  ],
+  "USSD audio teacher - epoch 0 original": [
+    [
+      21,
+      2
+    ],
+    [
+      4,
+      7
+    ]
+  ],
+  "v3 text branch": [
+    [
+      17,
+      6
+    ],
+    [
+      1,
+      10
+    ]
+  ],
+  "v3 audio branch": [
+    [
+      20,
+      3
+    ],
+    [
+      7,
+      4
+    ]
+  ],
+  "No-KD multimodal": [
+    [
+      18,
+      5
+    ],
+    [
+      4,
+      7
+    ]
+  ],
+  "Standard KD": [
+    [
+      16,
+      7
+    ],
+    [
+      2,
+      9
+    ]
+  ]
+}
