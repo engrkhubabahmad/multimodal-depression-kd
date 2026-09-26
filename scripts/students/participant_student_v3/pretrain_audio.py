@@ -125,6 +125,18 @@ def main(argv=None):
     loss_fn=torch.nn.BCEWithLogitsLoss()
     if device.type=="cuda": torch.cuda.reset_peak_memory_stats()
 
+    # Save/evaluate the random initialization explicitly as epoch 0.
+    # This is an audit artifact only and is NOT eligible for DEV checkpoint selection.
+    epoch0_ckpt=out/"epoch0.pt"
+    epoch0_dev,_,epoch0_metrics=evaluate(model,dvmeta,"dev",a.local_audio_root,mean,std,device)
+    torch.save({"model_state_dict":model.state_dict(),"epoch":0,
+                "selection_eligible":False,"seed":a.seed},epoch0_ckpt)
+    epoch0_dev.to_csv(out/"epoch0_dev_predictions.csv",index=False)
+    (out/"epoch0_metrics.json").write_text(json.dumps({
+        "epoch":0,"selection_eligible":False,"dev34":epoch0_metrics,
+        "seed":a.seed,"batch_size":a.batch_size,"test_opened":False
+    },indent=2)+"\n")
+
     print("AUDIO v3 author-recipe compressed pretraining")
     print("Device:",device,"| GPU:",torch.cuda.get_device_name(0) if device.type=="cuda" else "CPU")
     print("Model device:",next(model.parameters()).device,"| params:",params)
@@ -187,10 +199,12 @@ def main(argv=None):
       "optimizer":"Adam","initial_lr":a.lr,"weight_decay":0.0,"batch_size":a.batch_size,
       "lr_schedule":f"x{a.lr_decay} every {a.lr_factor_epochs} epochs",
       "checkpoint_selection":"DEV-34 participant majority-vote macro-F1, then depressed-F1, then soft-mean AUROC",
+      "epoch0_saved":True,"epoch0_selection_eligible":False,
       "threshold_search":False,"best_epoch":best_epoch,"test_opened":False
     }
     peak=float(torch.cuda.max_memory_allocated()/1024**2) if device.type=="cuda" else 0.0
-    result={"train_full":tm,"dev34":dm,"protocol":protocol,"params":params,"peak_cuda_mb":peak}
+    result={"train_full":tm,"dev34":dm,"epoch0_dev34":epoch0_metrics,
+            "protocol":protocol,"params":params,"peak_cuda_mb":peak}
     (out/"metrics.json").write_text(json.dumps(result,indent=2)+"\n")
     print("\nBEST AUDIO-BRANCH DEV-34:",json.dumps(dm,indent=2))
     print("best_epoch:",best_epoch,"| peak_cuda_mb:",round(peak,2),"| TEST CLOSED.")
