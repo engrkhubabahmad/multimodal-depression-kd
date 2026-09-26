@@ -100,10 +100,15 @@ def verify_sources(text_dir,audio_dir,teacher_text_dir,teacher_audio_dir,no_kd):
     tm=json.loads((text_dir/"metrics.json").read_text()); am=json.loads((audio_dir/"metrics.json").read_text())
     nta=json.loads((teacher_text_dir/"text_target_audit.json").read_text())
     naa=json.loads((teacher_audio_dir/"train_run4_crop_audit.json").read_text())
+    nts=json.loads((teacher_text_dir/"teacher_selection.json").read_text())
+    nas=json.loads((teacher_audio_dir/"teacher_selection.json").read_text())
     nm=json.loads((no_kd/"metrics.json").read_text()); bc=json.loads((no_kd/"backbone_config.json").read_text())
     assert tm["protocol"]["test_opened"] is False and am["protocol"]["test_opened"] is False
     assert nta["test_opened"] is False and naa["test_opened"] is False and nm["protocol"]["test_opened"] is False
+    assert nts["test_opened"] is False and nas["test_opened"] is False
     assert nta["train_participants"]==107 and naa["participants"]==107
+    assert nts["selected_epoch"]==0 and nas["selected_epoch"]==0
+    assert "original" in nts["selected_source"].lower() and "original" in nas["selected_source"].lower()
     assert bc["fusion_params"]==EXPECTED_FUSION_PARAMS and bc["full_student_params"]==254274
     assert bc["audio_dim"]==256 and bc["text_dim"]==64 and bc["projection_dim"]==96 and bc["hidden_dim"]==64
     return nm,bc
@@ -137,9 +142,11 @@ def main(argv=None):
     Atr=zscore(Atr,amean,astd); Adv=zscore(Adv,amean,astd)
     Ttr=zscore(Ttr,tmean,tstd); Tdv=zscore(Tdv,tmean,tstd)
 
-    target=load_teacher_targets(ttd/"train_text_kd_targets.csv",
-                                tad/"train_run4_crop_kd_targets.csv",
-                                tr_ids,ytr,a.temperature)
+    text_targets=ttd/"selected_train_kd_targets.csv"
+    audio_targets=tad/"selected_train_kd_targets.csv"
+    assert text_targets.is_file(),text_targets
+    assert audio_targets.is_file(),audio_targets
+    target=load_teacher_targets(text_targets,audio_targets,tr_ids,ytr,a.temperature)
     qkd=target["equal_soft"]
 
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu")
