@@ -104,7 +104,17 @@ def main(argv=None):
     ap.add_argument("--batch-size",type=int,default=20); ap.add_argument("--epochs",type=int,default=100)
     ap.add_argument("--patience",type=int,default=20); ap.add_argument("--lr",type=float,default=3e-3)
     ap.add_argument("--lr-factor-epochs",type=int,default=2); ap.add_argument("--lr-decay",type=float,default=.9)
+    ap.add_argument("--resume",action="store_true",help="Resume an interrupted exact run from last_state.pt when available")
+    ap.add_argument("--exact-v3",action="store_true",help="Enforce the frozen v3 recipe and exact completion targets")
     a=ap.parse_args(argv)
+    if a.exact_v3:
+        assert a.seed==1300,a.seed
+        assert a.batch_size==20,a.batch_size
+        assert a.epochs==100,a.epochs
+        assert a.patience==20,a.patience
+        assert abs(a.lr-0.003)<1e-15,a.lr
+        assert a.lr_factor_epochs==2,a.lr_factor_epochs
+        assert abs(a.lr_decay-0.9)<1e-15,a.lr_decay
     random.seed(a.seed); np.random.seed(a.seed); torch.manual_seed(a.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(a.seed); torch.backends.cudnn.deterministic=True; torch.backends.cudnn.benchmark=False
@@ -125,17 +135,45 @@ def main(argv=None):
     loss_fn=torch.nn.BCEWithLogitsLoss()
     if device.type=="cuda": torch.cuda.reset_peak_memory_stats()
 
-    # Save/evaluate the random initialization explicitly for diagnostics.
-    # This is a diagnostic artifact only and is NOT eligible for DEV checkpoint selection.
-    random_init_ckpt=out/"random_init.pt"
-    epoch0_dev,_,random_init_metrics=evaluate(model,dvmeta,"dev",a.local_audio_root,mean,std,device)
-    torch.save({"model_state_dict":model.state_dict(),"epoch":0,
-                "selection_eligible":False,"seed":a.seed},random_init_ckpt)
-    epoch0_dev.to_csv(out/"random_init_dev_predictions.csv",index=False)
-    (out/"random_init_metrics.json").write_text(json.dumps({
-        "stage":"random_init","selection_eligible":False,"dev34":random_init_metrics,
-        "seed":a.seed,"batch_size":a.batch_size,"test_opened":False
-    },indent=2)+"\n")
+    last_state=out/"last_state.pt"
+    hist_path=out/"history.csv"
+    ckpt=out/"best.pt"
+
+    # Fresh-start diagnostics. On resume, do not touch RNG before restoring state.
+    if a.resume and last_state.is_file():
+        rs=torch.load(last_state,map_location=device,weights_only=False)
+        model.load_state_dict(rs["model_state_dict"])
+        opt.load_state_dict(rs["optimizer_state_dict"])
+        g.set_state(rs["loader_generator_state"])
+        random.setstate(rs["python_random_state"])
+        np.random.set_state(rs["numpy_random_state"])
+        torch.set_rng_state(rs["torch_cpu_rng_state"])
+        if device.type=="cuda" and rs.get("torch_cuda_rng_state_all") is not None:
+            torch.cuda.set_rng_state_all(rs["torch_cuda_rng_state_all"])
+        hist=pd.read_csv(hist_path).to_dict("records") if hist_path.is_file() else []
+        best=tuple(rs["best"]); best_epoch=int(rs["best_epoch"]); stale=int(rs["stale"])
+        start_epoch=int(rs["epoch"])+1
+        random_init_metrics=json.loads((out/"random_init_metrics.json").read_text())["dev34"]
+        print("RESUME: continuing audio branch from epoch",int(rs["epoch"]))
+    else:
+        random_init_ckpt=out/"random_init.pt"
+        init_dev,_,random_init_metrics=evaluate(model,dvmeta,"dev",a.local_audio_root,mean,std,device)
+        torch.save({"model_state_dict":model.state_dict(),"stage":"random_init",
+                    "selection_eligible":False,"seed":a.seed},random_init_ckpt)
+        init_dev.to_csv(out/"random_init_dev_predictions.csv",index=False)
+        (out/"random_init_metrics.json").write_text(json.dumps({
+            "stage":"random_init","selection_eligible":False,"dev34":random_init_metrics,
+            "seed":a.seed,"batch_size":a.batch_size,"test_opened":False
+        },indent=2)+"\n")
+        best=(-1.,-1.,-1.); best_epoch=0; stale=0; hist=[]; start_epoch=1
+
+    run_config={
+        "seed":a.seed,"batch_size":a.batch_size,"requested_epochs":a.epochs,
+        "patience":a.patience,"initial_lr":a.lr,"lr_factor_epochs":a.lr_factor_epochs,
+        "lr_decay":a.lr_decay,"exact_v3":bool(a.exact_v3),"resume_enabled":bool(a.resume),
+        "feature_root":str(feat),"test_opened":False
+    }
+    (out/"run_config.json").write_text(json.dumps(run_config,indent=2)+"\n")
 
     print("AUDIO v3 author-recipe compressed pretraining")
     print("Device:",device,"| GPU:",torch.cuda.get_device_name(0) if device.type=="cuda" else "CPU")
@@ -147,8 +185,7 @@ def main(argv=None):
     print("Optimizer: Adam | lr:",a.lr,"| weight_decay: 0 | batch:",a.batch_size,
           "| lr_decay:",a.lr_decay,"every",a.lr_factor_epochs,"epochs")
 
-    best=(-1.,-1.,-1.); best_epoch=0; stale=0; hist=[]; ckpt=out/"best.pt"
-    for epoch in range(1,a.epochs+1):
+    for epoch in range(start_epoch,a.epochs+1):
         model.train(); total=n=0
         for x,y in loader:
             x=x.to(device,non_blocking=True); y=y.to(device,non_blocking=True)
@@ -177,12 +214,56 @@ def main(argv=None):
 
         if epoch%a.lr_factor_epochs==0:
             for pg in opt.param_groups: pg["lr"]*=a.lr_decay
+
+        torch.save({
+            "model_state_dict":model.state_dict(),
+            "optimizer_state_dict":opt.state_dict(),
+            "loader_generator_state":g.get_state(),
+            "python_random_state":random.getstate(),
+            "numpy_random_state":np.random.get_state(),
+            "torch_cpu_rng_state":torch.get_rng_state(),
+            "torch_cuda_rng_state_all":torch.cuda.get_rng_state_all() if device.type=="cuda" else None,
+            "epoch":epoch,"best":best,"best_epoch":best_epoch,"stale":stale,
+        },last_state)
+
         if stale>=a.patience:
             print("Early stop; best epoch",best_epoch); break
+
+    completed_epochs=int(hist[-1]["epoch"]) if hist else 0
+    stop_reason="early_stop" if stale>=a.patience else "max_epochs"
 
     state=torch.load(ckpt,map_location=device,weights_only=False); model.load_state_dict(state["model_state_dict"]); model.eval()
     trd,tre,tm=evaluate(model,trmeta,"train",a.local_audio_root,mean,std,device)
     dvd,dve,dm=evaluate(model,dvmeta,"dev",a.local_audio_root,mean,std,device)
+    if a.exact_v3:
+        exact_ok=(
+            completed_epochs==71 and best_epoch==51 and
+            round(float(dm["majority_vote"]["macro_f1"]),4)==0.6222 and
+            round(float(dm["majority_vote"]["depressed_f1"]),4)==0.4444 and
+            round(float(dm["auroc_soft_mean_probability"]),4)==0.5257 and
+            dm["majority_vote"]["confusion_matrix"]==[[20,3],[7,4]]
+        )
+        if not exact_ok:
+            failure={
+                "status":"INCOMPLETE_OR_MISMATCH",
+                "completed_epochs":completed_epochs,"stop_reason":stop_reason,
+                "best_epoch":best_epoch,"dev34":dm,"run_config":run_config,
+                "expected":{
+                    "completed_epochs":71,"best_epoch":51,
+                    "vote_macro_f1":0.6222222222222222,
+                    "vote_depressed_f1":0.4444444444444444,
+                    "auroc":0.5256916996047432,
+                    "confusion_matrix":[[20,3],[7,4]]
+                },
+                "test_opened":False
+            }
+            (out/"reproduction_failure.json").write_text(json.dumps(failure,indent=2)+"\n")
+            raise RuntimeError(
+                "Exact-v3 audio reproduction did not complete at the frozen target. "
+                f"completed_epochs={completed_epochs}, best_epoch={best_epoch}. "
+                "The resumable state is preserved in last_state.pt."
+            )
+
     trd.to_csv(out/"train_full_predictions.csv",index=False); dvd.to_csv(out/"dev_predictions.csv",index=False)
     np.savez_compressed(out/"train_audio_embeddings.npz",participant_ids=trd.participant_id.to_numpy(int),
                         labels=trd.label.to_numpy(int),embedding=tre,probability=trd.mean_probability.to_numpy(np.float32))
@@ -197,6 +278,8 @@ def main(argv=None):
       "segmentation_frames":FRAMES,"padding_then_normalization":True,
       "class_balance":"author run-4 SUB_SAMPLE_ND_CLASS: fixed 468 segments/class from deterministic TRAIN crop; no class weights",
       "optimizer":"Adam","initial_lr":a.lr,"weight_decay":0.0,"batch_size":a.batch_size,
+      "requested_epochs":a.epochs,"patience":a.patience,"completed_epochs":completed_epochs,
+      "stop_reason":stop_reason,"exact_v3":bool(a.exact_v3),
       "lr_schedule":f"x{a.lr_decay} every {a.lr_factor_epochs} epochs",
       "checkpoint_selection":"DEV-34 participant majority-vote macro-F1, then depressed-F1, then soft-mean AUROC",
       "random_init_saved":True,"random_init_selection_eligible":False,
@@ -206,6 +289,10 @@ def main(argv=None):
     result={"train_full":tm,"dev34":dm,"random_init_dev34":random_init_metrics,
             "protocol":protocol,"params":params,"peak_cuda_mb":peak}
     (out/"metrics.json").write_text(json.dumps(result,indent=2)+"\n")
+    (out/"complete.json").write_text(json.dumps({
+        "status":"PASS","completed_epochs":completed_epochs,"best_epoch":best_epoch,
+        "stop_reason":stop_reason,"exact_v3":bool(a.exact_v3),"test_opened":False
+    },indent=2)+"\n")
     print("\nBEST AUDIO-BRANCH DEV-34:",json.dumps(dm,indent=2))
     print("best_epoch:",best_epoch,"| peak_cuda_mb:",round(peak,2),"| TEST CLOSED.")
 
