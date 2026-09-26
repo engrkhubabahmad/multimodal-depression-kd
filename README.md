@@ -83,3 +83,19 @@ If fine-tuning does not improve that key, the original epoch-0 teacher remains s
 The compact v3 student branches are separate architectures. Their untrained state is saved only as `random_init.*` diagnostics and is never called the original teacher epoch 0.
 
 For exact v3 audio-branch reproduction, the locked compact-student recipe remains batch size **20**, seed **1300**, and historical selected epoch **51**. Notebook 04 refuses to start fusion unless that frozen audio-branch result is reproduced.
+
+
+## Persistent preprocessing caches
+
+Fresh experiment runs do **not** imply fresh deterministic feature extraction.
+
+Run-specific outputs remain isolated under:
+
+`/content/drive/MyDrive/DAIC_WOZ/experiments/exact_v3_reproduction/<run_id>/`
+
+But deterministic preprocessing is reused after strict validation:
+
+- IDIAP epoch-0 teacher targets/predictions: the canonical `experiments/idiap_text_teacher` cache is reused when it has TRAIN-107, DEV-34, participant 440 excluded, TEST closed, and the exact expected DEV result. Otherwise a cache is built once under `exact_v3_reproduction/_shared_cache/`.
+- USSD ComParE16 participant features: the canonical `experiments/ussd_compare16` cache is reused when it has TRAIN-107, DEV-34, participant 440 excluded, TEST closed, and ComParE16 config SHA256 `4baf8b75324db30e632a2935ab469058d54cd1c7b1806d5cc220dc7b124c454c`. Otherwise a cache is built once under `exact_v3_reproduction/_shared_cache/`.
+
+Each run stores small cache-pointer/provenance JSON files so the exact cache used is recorded without duplicating the feature arrays.
