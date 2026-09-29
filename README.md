@@ -1,6 +1,12 @@
-# Exact v3 reproduction
+# Multimodal Depression KD
 
-This branch is deliberately narrow. The default `main` pipeline reproduces the frozen v3 TRAIN-107 / DEV-34 experiment only.
+Repository: [engrkhubabahmad/multimodal-depression-kd](https://github.com/engrkhubabahmad/multimodal-depression-kd)
+
+The `main` pipeline reproduces the frozen v3 TRAIN-107 / DEV-34 experiment.
+
+```bash
+git clone https://github.com/engrkhubabahmad/multimodal-depression-kd.git
+```
 
 ## Goal
 
